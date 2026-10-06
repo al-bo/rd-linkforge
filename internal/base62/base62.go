@@ -2,6 +2,8 @@ package base62
 
 import (
 	"errors"
+	"math"
+	"strings"
 )
 
 var (
@@ -12,18 +14,18 @@ var (
 
 // array of
 var alphabet []rune = []rune("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
-
-var size = len(alphabet)
+var alphabetString = string(alphabet)
+var size = uint64(len(alphabet))
 
 // Encode renders a number with no padding.
 func Encode(v uint64) string {
 	var res []rune
 
 	for v > 0 {
-		r := v % uint64(size)
+		r := v % size
 		res = append(res, alphabet[r])
 
-		v = v / uint64(size)
+		v = v / size
 	}
 
 	for i, j := 0, len(res)-1; i < j; i, j = i+1, j-1 {
@@ -48,7 +50,25 @@ func EncodeWidth(v uint64, width int) string {
 
 // Decode parses a code back into a number.
 func Decode(s string) (uint64, error) {
-	var foo uint64 = 0
+	var result uint64
+	src := []rune(s)
+	max := uint64(math.MaxUint64)
 
-	return foo, ErrEmpty
+	for _, char := range src {
+		index := strings.IndexRune(alphabetString, char)
+
+		if index == -1 {
+			return 0, ErrInvalidCharacter
+		}
+
+		d := uint64(index)
+
+		if result > max/size {
+			return 0, ErrOverflow
+		}
+
+		result = result*size + d
+	}
+
+	return result, nil
 }
