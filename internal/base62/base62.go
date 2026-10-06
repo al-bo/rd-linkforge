@@ -54,6 +54,10 @@ func Decode(s string) (uint64, error) {
 	src := []rune(s)
 	max := uint64(math.MaxUint64)
 
+	if len(src) == 0 {
+		return 0, ErrEmpty
+	}
+
 	for _, char := range src {
 		index := strings.IndexRune(alphabetString, char)
 
