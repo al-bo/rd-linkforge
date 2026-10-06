@@ -35,7 +35,15 @@ func Encode(v uint64) string {
 
 // EncodeWidth does the same but left-pads with zeroes to at least width characters. The value itself is never truncated.
 func EncodeWidth(v uint64, width int) string {
-	return "noop"
+	encoded := Encode(v)
+	length := len([]rune(encoded))
+	var res []rune
+
+	for i := 0; i < width-length; i++ {
+		res = append(res, '0')
+	}
+
+	return string(res) + encoded
 }
 
 // Decode parses a code back into a number.
