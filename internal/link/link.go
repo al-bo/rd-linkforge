@@ -14,7 +14,6 @@ var (
 	ErrUnsupportedScheme = errors.New("link: error unsopported scheme")
 )
 
-// Link is a shortened URL. A zero ExpiresAt means it never expires.
 type Link struct {
 	ID        uint64
 	Code      string
@@ -32,7 +31,6 @@ func validateScheme(rawURL string) bool {
 	return scheme == "http" || scheme == "https"
 }
 
-// New builds a link, validating the target address.
 func New(id uint64, target string) (Link, error) {
 	r := []rune(target)
 

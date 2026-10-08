@@ -1,4 +1,3 @@
-// Command linkforged is the Linkforge service binary.
 package main
 
 import (
@@ -9,19 +8,28 @@ import (
 	"github.com/skskuzan/rd-linkforge/internal/store"
 )
 
-// version is overwritten at build time with -ldflags "-X main.version=...".
-
 func main() {
 	userArgs := os.Args[1:]
 	s := store.New()
+	exitCode := 0
 
 	for i, v := range userArgs {
 		l, err := link.New(uint64(i+1), v)
-		if err == nil {
-			fmt.Printf("%s    %s \n", l.Code, l.Target)
-			store.Add(s, l)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "create link for %q: %v\n", v, err)
+			exitCode = 1
+			continue
 		}
+		if err := store.Add(s, l); err != nil {
+			fmt.Fprintf(os.Stderr, "store link for %q: %v\n", v, err)
+			exitCode = 1
+			continue
+		}
+		fmt.Printf("%s    %s \n", l.Code, l.Target)
 	}
 
 	fmt.Printf("Total: %v \n", store.Count(s))
+	if exitCode != 0 {
+		os.Exit(exitCode)
+	}
 }
