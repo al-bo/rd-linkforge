@@ -11,7 +11,8 @@ import (
 
 var (
 	ErrEmptyTarget       = errors.New("link: error empty target")
-	ErrUnsupportedScheme = errors.New("link: error unsopported scheme")
+	ErrUnsupportedScheme = errors.New("link: error unsupported scheme")
+	ErrInvalidTarget     = errors.New("link: invalid target URL")
 )
 
 type Link struct {
@@ -21,14 +22,20 @@ type Link struct {
 	CreatedAt time.Time
 }
 
-func validateScheme(rawURL string) bool {
+func validateTarget(rawURL string) error {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
-		return false
+		return ErrInvalidTarget
 	}
 
 	scheme := strings.ToLower(parsedURL.Scheme)
-	return scheme == "http" || scheme == "https"
+	if scheme != "http" && scheme != "https" {
+		return ErrUnsupportedScheme
+	}
+	if parsedURL.Hostname() == "" {
+		return ErrInvalidTarget
+	}
+	return nil
 }
 
 func New(id uint64, target string) (Link, error) {
@@ -45,8 +52,8 @@ func New(id uint64, target string) (Link, error) {
 		return link, ErrEmptyTarget
 	}
 
-	if !validateScheme(target) {
-		return link, ErrUnsupportedScheme
+	if err := validateTarget(target); err != nil {
+		return link, err
 	}
 
 	return link, nil

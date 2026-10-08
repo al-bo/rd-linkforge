@@ -7,7 +7,14 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	for _, target := range []string{"http://example.com", "https://example.com/path", "HTTPS://example.com"} {
+	for _, target := range []string{
+		"http://example.com",
+		"https://example.com/path",
+		"HTTPS://example.com",
+		"http://localhost:8080/path",
+		"http://127.0.0.1:8080",
+		"https://[::1]:8443/path",
+	} {
 		t.Run(target, func(t *testing.T) {
 			got, err := New(62, target)
 			if err != nil {
@@ -31,7 +38,11 @@ func TestNewInvalidTarget(t *testing.T) {
 		{"", ErrEmptyTarget},
 		{"ftp://example.com", ErrUnsupportedScheme},
 		{"example.com", ErrUnsupportedScheme},
-		{"https://example.com/%zz", ErrUnsupportedScheme},
+		{"https://example.com/%zz", ErrInvalidTarget},
+		{"https://", ErrInvalidTarget},
+		{"http:abc", ErrInvalidTarget},
+		{"https:///path", ErrInvalidTarget},
+		{"https://:443/path", ErrInvalidTarget},
 	}
 	for _, tt := range tests {
 		t.Run(tt.target, func(t *testing.T) {
