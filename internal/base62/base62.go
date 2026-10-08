@@ -65,7 +65,7 @@ func Decode(s string) (uint64, error) {
 
 		d := uint64(index)
 
-		if result > max/size {
+		if result > (max-d)/size {
 			return 0, ErrOverflow
 		}
 
