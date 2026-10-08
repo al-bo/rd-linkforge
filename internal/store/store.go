@@ -14,7 +14,7 @@ type Store struct {
 }
 
 func New() Store {
-	return Store{}
+	return Store{byID: make(map[uint64]link.Link)}
 }
 
 func Add(s Store, l link.Link) error {
