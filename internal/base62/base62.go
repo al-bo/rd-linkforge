@@ -21,11 +21,14 @@ var size = uint64(len(alphabet))
 func Encode(v uint64) string {
 	var res []rune
 
-	for v > 0 {
+	for {
 		r := v % size
 		res = append(res, alphabet[r])
 
-		v = v / size
+		v /= size
+		if v == 0 {
+			break
+		}
 	}
 
 	for i, j := 0, len(res)-1; i < j; i, j = i+1, j-1 {
