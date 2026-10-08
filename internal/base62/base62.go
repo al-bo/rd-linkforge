@@ -12,14 +12,12 @@ var (
 	ErrOverflow         = errors.New("base62: code is too long")
 )
 
-// array of
-var alphabet []rune = []rune("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
-var alphabetString = string(alphabet)
-var size = uint64(len(alphabet))
+const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+const size = uint64(len(alphabet))
 
 // Encode renders a number with no padding.
 func Encode(v uint64) string {
-	var res []rune
+	var res []byte
 
 	for {
 		r := v % size
@@ -62,7 +60,7 @@ func Decode(s string) (uint64, error) {
 	}
 
 	for _, char := range src {
-		index := strings.IndexRune(alphabetString, char)
+		index := strings.IndexRune(alphabet, char)
 
 		if index == -1 {
 			return 0, ErrInvalidCharacter
