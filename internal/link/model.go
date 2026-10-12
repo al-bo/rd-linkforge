@@ -4,16 +4,6 @@ package link
 
 import "time"
 
-// Link is a shortened URL. A zero ExpiresAt means it never expires.
-type Link struct {
-	ID        int64
-	Code      string
-	TargetURL string
-	OwnerID   string
-	CreatedAt time.Time
-	ExpiresAt time.Time
-}
-
 // ShortenRequest carries everything needed to create a link. An empty Alias
 // asks for a generated code.
 type ShortenRequest struct {
