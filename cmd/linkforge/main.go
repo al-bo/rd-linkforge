@@ -25,6 +25,9 @@ func main() {
 			exitCode = 1
 			continue
 		}
+	}
+
+	for _, l := range store.All(s) {
 		fmt.Printf("%s    %s \n", l.Code, l.Target)
 	}
 

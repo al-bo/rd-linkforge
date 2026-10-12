@@ -46,8 +46,12 @@ func TestNewInvalidTarget(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.target, func(t *testing.T) {
-			if _, err := New(1, tt.target); !errors.Is(err, tt.want) {
+			got, err := New(1, tt.target)
+			if !errors.Is(err, tt.want) {
 				t.Errorf("New(1, %q) error = %v, want %v", tt.target, err, tt.want)
+			}
+			if got != (Link{}) {
+				t.Errorf("New(1, %q) = %+v, want zero Link on error", tt.target, got)
 			}
 		})
 	}

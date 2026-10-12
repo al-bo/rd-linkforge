@@ -39,23 +39,18 @@ func validateTarget(rawURL string) error {
 }
 
 func New(id uint64, target string) (Link, error) {
-	r := []rune(target)
+	if target == "" {
+		return Link{}, ErrEmptyTarget
+	}
 
-	link := Link{
+	if err := validateTarget(target); err != nil {
+		return Link{}, err
+	}
+
+	return Link{
 		ID:        id,
 		Code:      base62.EncodeWidth(id, 6),
 		Target:    target,
 		CreatedAt: time.Now().UTC(),
-	}
-
-	if len(r) == 0 {
-		return link, ErrEmptyTarget
-	}
-
-	if err := validateTarget(target); err != nil {
-		return link, err
-	}
-
-	return link, nil
-
+	}, nil
 }

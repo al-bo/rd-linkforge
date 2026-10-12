@@ -16,11 +16,12 @@ const alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 const size = uint64(len(alphabet))
 
 func Encode(v uint64) string {
-	var res []byte
+	var res [11]byte
+	i := len(res)
 
 	for {
-		r := v % size
-		res = append(res, alphabet[r])
+		i--
+		res[i] = alphabet[v%size]
 
 		v /= size
 		if v == 0 {
@@ -28,11 +29,7 @@ func Encode(v uint64) string {
 		}
 	}
 
-	for i, j := 0, len(res)-1; i < j; i, j = i+1, j-1 {
-		res[i], res[j] = res[j], res[i]
-	}
-
-	return string(res)
+	return string(res[i:])
 }
 
 func EncodeWidth(v uint64, width int) string {
@@ -54,6 +51,9 @@ func Decode(s string) (uint64, error) {
 
 	if len(src) == 0 {
 		return 0, ErrEmpty
+	}
+	if len(src) > 11 {
+		return 0, ErrOverflow
 	}
 
 	for _, char := range src {
