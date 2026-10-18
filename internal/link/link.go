@@ -25,6 +25,8 @@ var (
 	ErrInvalidCursor     = errors.New("link: invalid cursor")
 )
 
+var _ Shortener = (*Service)(nil)
+
 const (
 	DefaultPageLimit = 20
 	MaxPageLimit     = 100
