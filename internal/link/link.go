@@ -2,6 +2,7 @@ package link
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"time"
@@ -13,13 +14,42 @@ var (
 	ErrEmptyTarget       = errors.New("link: error empty target")
 	ErrUnsupportedScheme = errors.New("link: error unsupported scheme")
 	ErrInvalidTarget     = errors.New("link: invalid target URL")
+	ErrNotFound          = errors.New("link: not found")
+	ErrAliasTaken        = errors.New("link: alias already taken")
+	ErrInvalidAlias      = errors.New("link: invalid alias")
+	ErrReservedAlias     = errors.New("link: reserved alias")
+	ErrForbidden         = errors.New("link: forbidden")
+	ErrExpired           = errors.New("link: expired")
+	ErrInvalidExpiry     = errors.New("link: invalid expiry")
+	ErrEmptyOwner        = errors.New("link: owner is required")
+	ErrInvalidCursor     = errors.New("link: invalid cursor")
+)
+
+const (
+	DefaultPageLimit = 20
+	MaxPageLimit     = 100
 )
 
 type Link struct {
 	ID        uint64
 	Code      string
 	Target    string
+	OwnerID   string
 	CreatedAt time.Time
+	ExpiresAt time.Time
+}
+
+type AliasError struct {
+	Alias string
+	Err   error
+}
+
+func (e *AliasError) Error() string {
+	return fmt.Sprintf("alias %q: %v", e.Alias, e.Err)
+}
+
+func (e *AliasError) Unwrap() error {
+	return e.Err
 }
 
 func validateTarget(rawURL string) error {
