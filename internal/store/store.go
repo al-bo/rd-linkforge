@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"sort"
 
@@ -10,18 +11,22 @@ import (
 var ErrDuplicateID = errors.New("store: error duplicate id")
 
 type MemoryStore struct {
-	byID map[uint64]link.Link
+	byID   map[uint64]link.Link
+	byCode map[string]link.Link
 }
 
 func New() *MemoryStore {
 	return &MemoryStore{byID: make(map[uint64]link.Link)}
 }
 
-func (s *MemoryStore) Add(l link.Link) error {
-	_, present := s.byID[l.ID]
+func (s *MemoryStore) Create(ctx context.Context, l link.Link) error {
+	_, presentID := s.byID[l.ID]
+	_, presentCode := s.byCode[l.Code]
 
-	if present {
+	if presentID {
 		return ErrDuplicateID
+	} else if presentCode {
+		return link.ErrAliasTaken
 	} else {
 		s.byID[l.ID] = l
 	}
@@ -54,4 +59,50 @@ func (s *MemoryStore) All() []link.Link {
 
 func (s *MemoryStore) Count() int {
 	return len(s.byID)
+}
+
+func (s *MemoryStore) ByCode(ctx context.Context, code string) (link.Link, error) {
+	l, ok := s.byCode[code]
+	if !ok {
+		return link.Link{}, link.ErrNotFound
+	}
+
+	return l, nil
+}
+
+func (s *MemoryStore) ListByOwner(ctx context.Context, owner string, page link.Page) ([]link.Link, error) {
+	var r []link.Link
+	n := page.Normalize()
+	pid, afterError := n.AfterID()
+
+	if afterError != nil {
+		return r, afterError
+	}
+
+	sorted := s.All()
+
+	for _, v := range sorted {
+		if v.OwnerID == owner && v.ID > pid {
+			r = append(r, v)
+		}
+
+		if len(r) == n.Limit {
+			break
+		}
+	}
+
+	return r, nil
+}
+
+func (s *MemoryStore) Delete(ctx context.Context, id uint64) error {
+	l, ok := s.Get(id)
+
+	if !ok {
+		return link.ErrNotFound
+	}
+
+	delete(s.byID, id)
+	delete(s.byCode, l.Code)
+
+	return nil
 }
