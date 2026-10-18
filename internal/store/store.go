@@ -9,6 +9,7 @@ import (
 )
 
 var ErrDuplicateID = errors.New("store: error duplicate id")
+var _ link.Store = (*MemoryStore)(nil)
 
 type MemoryStore struct {
 	byID   map[uint64]link.Link
@@ -19,19 +20,19 @@ func New() *MemoryStore {
 	return &MemoryStore{byID: make(map[uint64]link.Link)}
 }
 
-func (s *MemoryStore) Create(ctx context.Context, l link.Link) error {
+func (s *MemoryStore) Create(ctx context.Context, l link.Link) (link.Link, error) {
 	_, presentID := s.byID[l.ID]
 	_, presentCode := s.byCode[l.Code]
 
 	if presentID {
-		return ErrDuplicateID
+		return link.Link{}, ErrDuplicateID
 	} else if presentCode {
-		return link.ErrAliasTaken
+		return link.Link{}, link.ErrAliasTaken
 	} else {
 		s.byID[l.ID] = l
 	}
 
-	return nil
+	return l, nil
 }
 
 func (s *MemoryStore) Get(id uint64) (link.Link, bool) {
