@@ -149,3 +149,56 @@ func (s *Service) Shorten(ctx context.Context, r ShortenRequest) (Link, error) {
 
 	return Link{}, fmt.Errorf("shorten: create link after 3 attempts: %w", ErrAliasTaken)
 }
+
+func (s *Service) Resolve(ctx context.Context, code string) (Link, error) {
+	l, err := s.store.ByCode(ctx, code)
+
+	if err != nil {
+		return Link{}, fmt.Errorf("Service resolve: %w", err)
+	}
+
+	if !l.ExpiresAt.IsZero() && !s.now().Before(l.ExpiresAt) {
+		return Link{}, ErrExpired
+	}
+
+	return l, nil
+}
+
+func (s *Service) List(ctx context.Context, ownerId string, p Page) ([]Link, error) {
+
+	if ownerId == "" {
+		return make([]Link, 0), ErrEmptyOwner
+	}
+
+	links, err := s.store.ListByOwner(ctx, ownerId, p.Normalize())
+
+	if err != nil {
+		return make([]Link, 0), fmt.Errorf("Service List: %w", err)
+	}
+
+	return links, nil
+}
+
+func (s *Service) Delete(ctx context.Context, ownerId string, code string) error {
+	if ownerId == "" {
+		return ErrEmptyOwner
+	}
+
+	l, err := s.store.ByCode(ctx, code)
+
+	if err != nil {
+		return fmt.Errorf("delete: find link: %w", err)
+	}
+
+	if l.OwnerID != ownerId {
+		return ErrForbidden
+	}
+
+	deleteError := s.store.Delete(ctx, l.ID)
+
+	if deleteError != nil {
+		return fmt.Errorf("Service Delete: %w", deleteError)
+	}
+
+	return nil
+}

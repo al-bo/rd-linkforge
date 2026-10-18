@@ -17,7 +17,10 @@ type MemoryStore struct {
 }
 
 func New() *MemoryStore {
-	return &MemoryStore{byID: make(map[uint64]link.Link)}
+	return &MemoryStore{
+		byID:   make(map[uint64]link.Link),
+		byCode: make(map[string]link.Link),
+	}
 }
 
 func (s *MemoryStore) Create(ctx context.Context, l link.Link) (link.Link, error) {
