@@ -1,3 +1,3 @@
-module github.com/skskuzan/rd-linkforge/pkg
+module github.com/al-bo/rd-linkforge/pkg
 
 go 1.25

@@ -15,6 +15,9 @@ func TestEncode(t *testing.T) {
 		if got := Encode(in); got != want {
 			t.Errorf("Encode(%d) = %q, want %q", in, got, want)
 		}
+		if got := EncodeRecursive(in); got != want {
+			t.Errorf("EncodeRecursive(%d) = %q, want %q", in, got, want)
+		}
 	}
 }
 
