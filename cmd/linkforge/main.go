@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/skskuzan/rd-linkforge/internal/link"
-	"github.com/skskuzan/rd-linkforge/internal/store"
+	"github.com/al-bo/rd-linkforge/internal/link"
+	"github.com/al-bo/rd-linkforge/internal/store"
 )
 
 func main() {

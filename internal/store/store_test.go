@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/skskuzan/rd-linkforge/internal/link"
+	"github.com/al-bo/rd-linkforge/internal/link"
 )
 
 func TestEmptyStore(t *testing.T) {

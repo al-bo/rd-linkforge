@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/skskuzan/rd-linkforge/internal/base62"
+	"github.com/al-bo/rd-linkforge/internal/base62"
 )
 
 var (

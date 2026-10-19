@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/skskuzan/rd-linkforge/internal/base62"
+	"github.com/al-bo/rd-linkforge/internal/base62"
 )
 
 // Shortener is the domain service every transport sits in front of. No

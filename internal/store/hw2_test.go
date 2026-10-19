@@ -6,8 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	// Replace YOUR_MODULE with the module path from the first line of go.mod.
-	"YOUR_MODULE/internal/link"
+	"github.com/al-bo/rd-linkforge/internal/link"
 )
 
 var _ link.Store = (*Store)(nil)

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/skskuzan/rd-linkforge/internal/base62"
+	"github.com/al-bo/rd-linkforge/internal/base62"
 )
 
 // ShortenRequest carries everything needed to create a link. An empty Alias
