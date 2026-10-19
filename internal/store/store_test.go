@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -10,43 +11,53 @@ import (
 
 func TestEmptyStore(t *testing.T) {
 	s := New()
-	if Count(s) != 0 || len(All(s)) != 0 {
+	if s.Count() != 0 || len(s.All()) != 0 {
 		t.Fatal("new store must be empty")
 	}
-	if got, ok := Get(s, 1); ok || got != (link.Link{}) {
+	if got, ok := s.Get(1); ok || got != (link.Link{}) {
 		t.Errorf("Get missing ID = %+v, %v; want zero Link, false", got, ok)
 	}
 }
 
-func TestAddAndGet(t *testing.T) {
+func TestCreateAndGet(t *testing.T) {
+	ctx := context.Background()
 	s := New()
 	want := link.Link{ID: 1, Code: "000001", Target: "https://example.com"}
-	if err := Add(s, want); err != nil {
+	got, err := s.Create(ctx, want)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Add(s, link.Link{ID: 1, Target: "https://other.example.com"}); !errors.Is(err, ErrDuplicateID) {
-		t.Errorf("Add duplicate error = %v, want %v", err, ErrDuplicateID)
+	if got != want {
+		t.Errorf("Create = %+v, want %+v", got, want)
 	}
-	if got, ok := Get(s, 1); !ok || got != want {
+	if _, err := s.Create(ctx, link.Link{ID: 1, Target: "https://other.example.com"}); !errors.Is(err, ErrDuplicateID) {
+		t.Errorf("Create duplicate error = %v, want %v", err, ErrDuplicateID)
+	}
+	if got, ok := s.Get(1); !ok || got != want {
 		t.Errorf("Get(1) = %+v, %v; want %+v, true", got, ok, want)
 	}
-	if got := Count(s); got != 1 {
+	if got := s.Count(); got != 1 {
 		t.Errorf("Count = %d, want 1", got)
 	}
 }
 
 func TestAllSortedByID(t *testing.T) {
+	ctx := context.Background()
 	s := New()
-	for _, id := range []uint64{3, 1, 2} {
-		if err := Add(s, link.Link{ID: id}); err != nil {
+	want := []link.Link{
+		{ID: 1, Code: "000001"},
+		{ID: 2, Code: "000002"},
+		{ID: 3, Code: "000003"},
+	}
+	for _, index := range []int{2, 0, 1} {
+		if _, err := s.Create(ctx, want[index]); err != nil {
 			t.Fatal(err)
 		}
 	}
-	want := []link.Link{{ID: 1}, {ID: 2}, {ID: 3}}
-	if got := All(s); !reflect.DeepEqual(got, want) {
+	if got := s.All(); !reflect.DeepEqual(got, want) {
 		t.Errorf("All = %+v, want %+v", got, want)
 	}
-	if got := Count(s); got != len(want) {
+	if got := s.Count(); got != len(want) {
 		t.Errorf("Count = %d, want %d", got, len(want))
 	}
 }
