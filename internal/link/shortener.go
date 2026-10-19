@@ -72,6 +72,11 @@ func ValidateAlias(v string) error {
 		"metrics": true,
 		"admin":   true,
 	}
+	la := strings.ToLower(v)
+	if reservedAliases[la] {
+		return ErrReservedAlias
+	}
+
 	src := []rune(v)
 	l := len(src)
 
@@ -81,11 +86,6 @@ func ValidateAlias(v string) error {
 
 	if !aliasRegex.MatchString(v) {
 		return ErrInvalidAlias
-	}
-
-	la := strings.ToLower(v)
-	if reservedAliases[la] {
-		return ErrReservedAlias
 	}
 
 	return nil
@@ -147,7 +147,10 @@ func (s *Service) Shorten(ctx context.Context, r ShortenRequest) (Link, error) {
 		s.nextID++
 	}
 
-	return Link{}, fmt.Errorf("shorten: create link after 3 attempts: %w", ErrAliasTaken)
+	return Link{}, &AliasError{
+		Alias: l.Code,
+		Err:   ErrAliasTaken,
+	}
 }
 
 func (s *Service) Resolve(ctx context.Context, code string) (Link, error) {

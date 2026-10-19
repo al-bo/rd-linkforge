@@ -9,7 +9,7 @@ import (
 	"github.com/al-bo/rd-linkforge/internal/link"
 )
 
-var _ link.Store = (*MemoryStore)(nil)
+var _ link.Store = (*Store)(nil)
 
 func hw2Link(id uint64, code, owner string) link.Link {
 	return link.Link{ID: id, Code: code, Target: "https://example.com", OwnerID: owner}

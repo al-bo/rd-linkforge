@@ -9,21 +9,21 @@ import (
 )
 
 var ErrDuplicateID = errors.New("store: error duplicate id")
-var _ link.Store = (*MemoryStore)(nil)
+var _ link.Store = (*Store)(nil)
 
-type MemoryStore struct {
+type Store struct {
 	byID   map[uint64]link.Link
 	byCode map[string]link.Link
 }
 
-func New() *MemoryStore {
-	return &MemoryStore{
+func New() *Store {
+	return &Store{
 		byID:   make(map[uint64]link.Link),
 		byCode: make(map[string]link.Link),
 	}
 }
 
-func (s *MemoryStore) Create(ctx context.Context, l link.Link) (link.Link, error) {
+func (s *Store) Create(ctx context.Context, l link.Link) (link.Link, error) {
 	_, presentID := s.byID[l.ID]
 	_, presentCode := s.byCode[l.Code]
 
@@ -33,18 +33,19 @@ func (s *MemoryStore) Create(ctx context.Context, l link.Link) (link.Link, error
 		return link.Link{}, link.ErrAliasTaken
 	} else {
 		s.byID[l.ID] = l
+		s.byCode[l.Code] = l
 	}
 
 	return l, nil
 }
 
-func (s *MemoryStore) Get(id uint64) (link.Link, bool) {
+func (s *Store) Get(id uint64) (link.Link, bool) {
 	i, ok := s.byID[id]
 
 	return i, ok
 }
 
-func (s *MemoryStore) All() []link.Link {
+func (s *Store) All() []link.Link {
 	ids := make([]uint64, 0, len(s.byID))
 	for id := range s.byID {
 		ids = append(ids, id)
@@ -61,11 +62,11 @@ func (s *MemoryStore) All() []link.Link {
 	return result
 }
 
-func (s *MemoryStore) Count() int {
+func (s *Store) Count() int {
 	return len(s.byID)
 }
 
-func (s *MemoryStore) ByCode(ctx context.Context, code string) (link.Link, error) {
+func (s *Store) ByCode(ctx context.Context, code string) (link.Link, error) {
 	l, ok := s.byCode[code]
 	if !ok {
 		return link.Link{}, link.ErrNotFound
@@ -74,7 +75,7 @@ func (s *MemoryStore) ByCode(ctx context.Context, code string) (link.Link, error
 	return l, nil
 }
 
-func (s *MemoryStore) ListByOwner(ctx context.Context, owner string, page link.Page) ([]link.Link, error) {
+func (s *Store) ListByOwner(ctx context.Context, owner string, page link.Page) ([]link.Link, error) {
 	var r []link.Link
 	n := page.Normalize()
 	pid, afterError := n.AfterID()
@@ -98,7 +99,7 @@ func (s *MemoryStore) ListByOwner(ctx context.Context, owner string, page link.P
 	return r, nil
 }
 
-func (s *MemoryStore) Delete(ctx context.Context, id uint64) error {
+func (s *Store) Delete(ctx context.Context, id uint64) error {
 	l, ok := s.Get(id)
 
 	if !ok {

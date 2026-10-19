@@ -18,10 +18,10 @@ func main() {
 
 	for _, v := range userArgs {
 		req := link.ShortenRequest{Target: v, Alias: "", OwnerID: owner}
-		link, err := service.Shorten(ctx, req)
+		_, err := service.Shorten(ctx, req)
 
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error shorting: %q %v\n", link, err)
+			fmt.Fprintf(os.Stderr, "shorten %q: %v\n", v, err)
 		}
 	}
 

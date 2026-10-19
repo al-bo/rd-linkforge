@@ -24,9 +24,6 @@ type Page struct {
 	Limit  int
 }
 
-// Normalize повертає копію p, де Limit у межах [1, MaxPageLimit]:
-// нуль чи від'ємне стає DefaultPageLimit, понад максимум – MaxPageLimit.
-// Вона не змінює p.
 func (p Page) Normalize() Page {
 	if p.Limit > 0 && p.Limit <= MaxPageLimit {
 		return p
@@ -37,8 +34,6 @@ func (p Page) Normalize() Page {
 	}
 }
 
-// AfterID декодує курсор. Порожній курсор повертає 0, nil.
-// Курсор, відхилений base62.Decode, дає помилку, що обгортає ErrInvalidCursor.
 func (p Page) AfterID() (uint64, error) {
 	if p.Cursor == "" {
 		return 0, nil
