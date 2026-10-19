@@ -12,7 +12,7 @@ import (
 // ShortenRequest carries everything needed to create a link. An empty Alias
 // asks for a generated code.
 type ShortenRequest struct {
-	TargetURL string
+	Target    string
 	Alias     string
 	OwnerID   string
 	ExpiresAt time.Time

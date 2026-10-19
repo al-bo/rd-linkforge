@@ -17,7 +17,7 @@ func main() {
 	userArgs := os.Args[1:]
 
 	for _, v := range userArgs {
-		req := link.ShortenRequest{TargetURL: v, Alias: "", OwnerID: owner}
+		req := link.ShortenRequest{Target: v, Alias: "", OwnerID: owner}
 		link, err := service.Shorten(ctx, req)
 
 		if err != nil {

@@ -96,7 +96,7 @@ func (s *Service) Shorten(ctx context.Context, r ShortenRequest) (Link, error) {
 		return Link{}, ErrEmptyOwner
 	}
 
-	l, err := New(s.nextID, r.TargetURL)
+	l, err := New(s.nextID, r.Target)
 
 	if err != nil {
 		return Link{}, err
