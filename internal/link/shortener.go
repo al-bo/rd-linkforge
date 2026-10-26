@@ -46,6 +46,12 @@ func WithClock(now func() time.Time) Option {
 	}
 }
 
+func WithFirstID(id uint64) Option {
+	return func(s *Service) {
+		s.nextID = id
+	}
+}
+
 func NewService(store Store, opts ...Option) *Service {
 	s := &Service{
 		store:  store,
