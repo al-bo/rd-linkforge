@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -61,37 +60,35 @@ func NewService(store Store, opts ...Option) *Service {
 	return s
 }
 
-func ValidateAlias(v string) error {
-	var aliasRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,32}$`)
-
-	var reservedAliases = map[string]bool{
-		"api":     true,
-		"ws":      true,
-		"healthz": true,
-		"readyz":  true,
-		"metrics": true,
-		"admin":   true,
-	}
-	la := strings.ToLower(v)
-	if reservedAliases[la] {
+func validateAlias(v string) error {
+	switch strings.ToLower(v) {
+	case "api", "ws", "healthz", "readyz", "metrics", "admin":
 		return ErrReservedAlias
 	}
 
-	src := []rune(v)
-	l := len(src)
-
-	if l < 3 || l > 32 {
+	if len(v) < 3 || len(v) > 32 {
 		return ErrInvalidAlias
 	}
 
-	if !aliasRegex.MatchString(v) {
-		return ErrInvalidAlias
+	for i := 0; i < len(v); i++ {
+		if !isAliasChar(v[i]) {
+			return ErrInvalidAlias
+		}
 	}
 
 	return nil
 }
 
+func isAliasChar(c byte) bool {
+	return 'a' <= c && c <= 'z' ||
+		'A' <= c && c <= 'Z' ||
+		'0' <= c && c <= '9' ||
+		c == '_' || c == '-'
+}
+
 func (s *Service) Shorten(ctx context.Context, r ShortenRequest) (Link, error) {
+	const maxAttempts = 3
+
 	if r.OwnerID == "" {
 		return Link{}, ErrEmptyOwner
 	}
@@ -108,7 +105,7 @@ func (s *Service) Shorten(ctx context.Context, r ShortenRequest) (Link, error) {
 	}
 
 	if r.Alias != "" {
-		if err := ValidateAlias(r.Alias); err != nil {
+		if err := validateAlias(r.Alias); err != nil {
 			return Link{}, &AliasError{
 				Alias: r.Alias,
 				Err:   err,
@@ -120,7 +117,7 @@ func (s *Service) Shorten(ctx context.Context, r ShortenRequest) (Link, error) {
 	l.ExpiresAt = r.ExpiresAt
 	l.CreatedAt = now
 
-	for attempt := 0; attempt < 3; attempt++ {
+	for range maxAttempts {
 		l.ID = s.nextID
 		l.Code = r.Alias
 		if l.Code == "" {
@@ -134,7 +131,7 @@ func (s *Service) Shorten(ctx context.Context, r ShortenRequest) (Link, error) {
 		}
 
 		if !errors.Is(createErr, ErrAliasTaken) {
-			return Link{}, fmt.Errorf("shorten: create link: %w", createErr)
+			return Link{}, fmt.Errorf("link: shorten: create: %w", createErr)
 		}
 
 		if r.Alias != "" {
@@ -157,7 +154,7 @@ func (s *Service) Resolve(ctx context.Context, code string) (Link, error) {
 	l, err := s.store.ByCode(ctx, code)
 
 	if err != nil {
-		return Link{}, fmt.Errorf("Service resolve: %w", err)
+		return Link{}, fmt.Errorf("link: resolve: %w", err)
 	}
 
 	if !l.ExpiresAt.IsZero() && !s.now().Before(l.ExpiresAt) {
@@ -167,40 +164,37 @@ func (s *Service) Resolve(ctx context.Context, code string) (Link, error) {
 	return l, nil
 }
 
-func (s *Service) List(ctx context.Context, ownerId string, p Page) ([]Link, error) {
-
-	if ownerId == "" {
-		return make([]Link, 0), ErrEmptyOwner
+func (s *Service) List(ctx context.Context, ownerID string, p Page) ([]Link, error) {
+	if ownerID == "" {
+		return nil, ErrEmptyOwner
 	}
 
-	links, err := s.store.ListByOwner(ctx, ownerId, p.Normalize())
+	links, err := s.store.ListByOwner(ctx, ownerID, p.Normalize())
 
 	if err != nil {
-		return make([]Link, 0), fmt.Errorf("Service List: %w", err)
+		return nil, fmt.Errorf("link: list: %w", err)
 	}
 
 	return links, nil
 }
 
-func (s *Service) Delete(ctx context.Context, ownerId string, code string) error {
-	if ownerId == "" {
+func (s *Service) Delete(ctx context.Context, ownerID string, code string) error {
+	if ownerID == "" {
 		return ErrEmptyOwner
 	}
 
 	l, err := s.store.ByCode(ctx, code)
 
 	if err != nil {
-		return fmt.Errorf("delete: find link: %w", err)
+		return fmt.Errorf("link: delete: find: %w", err)
 	}
 
-	if l.OwnerID != ownerId {
+	if l.OwnerID != ownerID {
 		return ErrForbidden
 	}
 
-	deleteError := s.store.Delete(ctx, l.ID)
-
-	if deleteError != nil {
-		return fmt.Errorf("Service Delete: %w", deleteError)
+	if err := s.store.Delete(ctx, l.ID); err != nil {
+		return fmt.Errorf("link: delete: %w", err)
 	}
 
 	return nil

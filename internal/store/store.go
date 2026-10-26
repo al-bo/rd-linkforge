@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"errors"
-	"sort"
+	"slices"
 
 	"github.com/al-bo/rd-linkforge/internal/link"
 )
@@ -50,9 +50,7 @@ func (s *Store) All() []link.Link {
 	for id := range s.byID {
 		ids = append(ids, id)
 	}
-	sort.Slice(ids, func(i, j int) bool {
-		return ids[i] < ids[j]
-	})
+	slices.Sort(ids)
 
 	result := make([]link.Link, 0, len(s.byID))
 	for _, id := range ids {
@@ -75,28 +73,33 @@ func (s *Store) ByCode(ctx context.Context, code string) (link.Link, error) {
 	return l, nil
 }
 
-func (s *Store) ListByOwner(ctx context.Context, owner string, page link.Page) ([]link.Link, error) {
-	var r []link.Link
-	n := page.Normalize()
-	pid, afterError := n.AfterID()
-
-	if afterError != nil {
-		return r, afterError
+func (s *Store) ListByOwner(ctx context.Context, ownerID string, page link.Page) ([]link.Link, error) {
+	p := page.Normalize()
+	afterID, err := p.AfterID()
+	if err != nil {
+		return nil, err
 	}
 
-	sorted := s.All()
-
-	for _, v := range sorted {
-		if v.OwnerID == owner && v.ID > pid {
-			r = append(r, v)
-		}
-
-		if len(r) == n.Limit {
-			break
+	var ids []uint64
+	for id, l := range s.byID {
+		if l.OwnerID == ownerID && id > afterID {
+			ids = append(ids, id)
 		}
 	}
+	slices.Sort(ids)
 
-	return r, nil
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	if len(ids) > p.Limit {
+		ids = ids[:p.Limit]
+	}
+
+	links := make([]link.Link, 0, len(ids))
+	for _, id := range ids {
+		links = append(links, s.byID[id])
+	}
+	return links, nil
 }
 
 func (s *Store) Delete(ctx context.Context, id uint64) error {

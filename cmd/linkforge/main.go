@@ -26,8 +26,8 @@ func main() {
 	}
 
 	for _, l := range s.All() {
-		fmt.Printf("%s    %s \n", l.Code, l.Target)
+		fmt.Printf("%s    %s\n", l.Code, l.Target)
 	}
 
-	fmt.Printf("Total: %v \n", s.Count())
+	fmt.Printf("Total: %v\n", s.Count())
 }
