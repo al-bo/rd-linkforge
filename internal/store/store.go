@@ -27,6 +27,10 @@ func (s *Store) Create(ctx context.Context, l link.Link) (link.Link, error) {
 	_, presentID := s.byID[l.ID]
 	_, presentCode := s.byCode[l.Code]
 
+	if err := ctx.Err(); err != nil {
+		return link.Link{}, err
+	}
+
 	if presentID {
 		return link.Link{}, ErrDuplicateID
 	} else if presentCode {
@@ -66,6 +70,11 @@ func (s *Store) Count() int {
 
 func (s *Store) ByCode(ctx context.Context, code string) (link.Link, error) {
 	l, ok := s.byCode[code]
+
+	if err := ctx.Err(); err != nil {
+		return link.Link{}, err
+	}
+
 	if !ok {
 		return link.Link{}, link.ErrNotFound
 	}
@@ -76,6 +85,11 @@ func (s *Store) ByCode(ctx context.Context, code string) (link.Link, error) {
 func (s *Store) ListByOwner(ctx context.Context, ownerID string, page link.Page) ([]link.Link, error) {
 	p := page.Normalize()
 	afterID, err := p.AfterID()
+
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -104,6 +118,10 @@ func (s *Store) ListByOwner(ctx context.Context, ownerID string, page link.Page)
 
 func (s *Store) Delete(ctx context.Context, id uint64) error {
 	l, ok := s.Get(id)
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	if !ok {
 		return link.ErrNotFound

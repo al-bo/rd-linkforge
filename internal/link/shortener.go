@@ -89,6 +89,10 @@ func isAliasChar(c byte) bool {
 func (s *Service) Shorten(ctx context.Context, r ShortenRequest) (Link, error) {
 	const maxAttempts = 3
 
+	if err := ctx.Err(); err != nil {
+		return Link{}, err
+	}
+
 	if r.OwnerID == "" {
 		return Link{}, ErrEmptyOwner
 	}
@@ -153,6 +157,10 @@ func (s *Service) Shorten(ctx context.Context, r ShortenRequest) (Link, error) {
 func (s *Service) Resolve(ctx context.Context, code string) (Link, error) {
 	l, err := s.store.ByCode(ctx, code)
 
+	if err := ctx.Err(); err != nil {
+		return Link{}, err
+	}
+
 	if err != nil {
 		return Link{}, fmt.Errorf("link: resolve: %w", err)
 	}
@@ -165,6 +173,10 @@ func (s *Service) Resolve(ctx context.Context, code string) (Link, error) {
 }
 
 func (s *Service) List(ctx context.Context, ownerID string, p Page) ([]Link, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	if ownerID == "" {
 		return nil, ErrEmptyOwner
 	}
@@ -179,6 +191,10 @@ func (s *Service) List(ctx context.Context, ownerID string, p Page) ([]Link, err
 }
 
 func (s *Service) Delete(ctx context.Context, ownerID string, code string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	if ownerID == "" {
 		return ErrEmptyOwner
 	}
