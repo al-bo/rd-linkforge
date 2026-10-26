@@ -1,29 +1,62 @@
 # Linkforge
 
-A URL shortener with real-time click analytics, built incrementally as the course project for **Golang for developers**.
+A URL shortener with planned real-time click analytics, built incrementally as the course project for **Golang for developers**.
 
-The design is specified in the project TDD; this repository is the skeleton it describes.
+The design is specified in the project TDD. The repository contains the implemented domain service and in-memory storage, alongside contracts for later milestones.
 
 ## Current state
 
-**Skeleton only.** Every seam in the architecture exists as an interface with a Null Object implementation that satisfies it and does nothing. Nothing is wired together and no behaviour is implemented yet — each milestone replaces one set of `Noop*` types with real ones.
+Homework 2 implements the `Shortener` service and connects it to an in-memory store:
 
-Each file declares exactly one interface alongside its no-op implementation, so the compile-time contract and its placeholder stay together. Types shared by several interfaces live in the package's `model.go`.
+- `internal/base62` provides encoding, recursive encoding, padding, and decoding with overflow checks.
+- `link.Service` implements `Shortener`: it creates links with generated codes or custom aliases, resolves links while checking expiry, lists an owner's links with cursor pagination, and checks ownership before deletion.
+- `store.Store` implements `link.Store` using maps indexed by ID and code. It rejects duplicate IDs and codes and returns lists ordered by ID.
+- The service owns the ID counter and retries generated-code collisions up to three attempts. `WithClock` supplies a controllable clock for tests.
+- Sentinel errors and `AliasError` support inspection with `errors.Is` and `errors.As`.
+
+The original interfaces and `Noop*` implementations remain in place. The demo uses the concrete service and store. Storage lasts for the current process and is intended for sequential use at this stage.
+
+## Run the demo
+
+Requires Go 1.25 or newer. From the repository root:
+
+```bash
+go run ./cmd/linkforge https://example.com ftp://nope https://go.dev
+```
+
+Standard output:
+
+```text
+000001    https://example.com
+000002    https://go.dev
+Total: 2
+```
+
+The invalid address is reported to standard error:
+
+```text
+shorten "ftp://nope": link: error unsupported scheme
+```
+
+The command creates links for owner `demo`, continues after invalid input, and prints the stored links using `All` and `Count`. An invalid request does not consume an ID.
 
 ## Layout
 
 ```
-cmd/      linkforged        service binary — prints its version, nothing more
+cmd/      linkforge         CLI demo using the service and in-memory store
           linkctl           operator CLI   — prints its version, nothing more
 
-pkg/                        reusable libraries — a separate Go module
-  shortid/  Codec           base62 encode/decode                       M1
+pkg/                        reusable library contracts — a separate Go module
+  shortid/  Codec           base62 codec contract (placeholder)        M1
             Generator       collision-resistant code issuing           M4
   cache/    Cache[K,V]      bounded cache on the redirect hot path     M4
 
 internal/                   application code
+  base62/                   base62 codec and recursive encoder         M1 / M2
   link/     Store           link persistence, declared by its consumer M1 / M7
             Shortener       the domain service behind every transport  M2
+            Service         concrete Shortener implementation          M2
+  store/    Store           in-memory link storage                     M1 / M2
   click/    Ingester        non-blocking submission from the hot path  M5
             Store           append-only raw event persistence          M7
             Aggregator      time series and top-N queries              M5
@@ -49,6 +82,14 @@ These hold for every milestone.
 
 ## Working on it
 
+Run the application module's tests, including the homework tests, from the repository root:
+
+```bash
+go test ./...
+```
+
+Use `make test` to check both the application module and the separate `pkg` module with the race detector. Other development commands are:
+
 ```bash
 make            # vet, lint and test — the same gates CI runs
 make build
@@ -58,7 +99,7 @@ make bench
 make tidy
 ```
 
-Requires Go 1.25+. Linting uses [golangci-lint](https://golangci-lint.run) (`brew install golangci-lint`).
+Linting uses [golangci-lint](https://golangci-lint.run) (`brew install golangci-lint`).
 
 ## Milestones
 

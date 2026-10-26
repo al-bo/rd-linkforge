@@ -32,6 +32,13 @@ func Encode(v uint64) string {
 	return string(res[i:])
 }
 
+func EncodeRecursive(v uint64) string {
+	if v < size {
+		return string(alphabet[v])
+	}
+	return EncodeRecursive(v/size) + string(alphabet[v%size])
+}
+
 func EncodeWidth(v uint64, width int) string {
 	encoded := Encode(v)
 	length := len([]rune(encoded))
