@@ -16,6 +16,8 @@ var (
 	ErrInvalid = errors.New("config: invalid value")
 )
 
+var _ Loader = (*EnvLoader)(nil)
+
 type EnvLoader struct { /* your fields */
 	lookup func(string) (string, bool)
 }
@@ -138,4 +140,17 @@ func ParseLevel(s string) (slog.Level, error) {
 	default:
 		return 0, fmt.Errorf("log level %q: %w", s, ErrInvalid)
 	}
+}
+
+func (c Config) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("HTTPAddr", c.HTTPAddr),
+		slog.String("AdminAddr", c.AdminAddr),
+		slog.String("TCPAddr", c.TCPAddr),
+		slog.String("PGDSN", "[redacted]"),
+		slog.String("MongoURI", "[redacted]"),
+		slog.String("JWTSecret", "[redacted]"),
+		slog.Int("CacheSize", c.CacheSize),
+		slog.String("LogLevel", c.LogLevel.String()),
+	)
 }
