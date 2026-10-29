@@ -15,6 +15,7 @@ import (
 	"github.com/al-bo/rd-linkforge/internal/config"
 	"github.com/al-bo/rd-linkforge/internal/link"
 	"github.com/al-bo/rd-linkforge/internal/linkio"
+	"github.com/al-bo/rd-linkforge/internal/store"
 )
 
 const version = "dev"
@@ -40,6 +41,10 @@ func loadConfig(ctx context.Context, env EnvLoader, logger *slog.Logger) {
 
 func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Writer) int {
 	level := slog.LevelInfo
+	s := store.New()
+	service := link.NewService(s)
+	owner := "demo"
+
 	if value, ok := env("LF_LOG_LEVEL"); ok && strings.TrimSpace(value) != "" {
 		parsed, err := config.ParseLevel(value)
 		if err != nil {
@@ -82,6 +87,21 @@ func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Wr
 			}
 			if *inPath != "" && *dstPath != "" {
 				logger.InfoContext(ctx, "import started", slog.String("in", *inPath), slog.String("db", *dstPath))
+				targets, err := linkio.ReadTargetsFile(*inPath)
+				logger.InfoContext(ctx, "imported targets", slog.Any("targets", targets))
+				if err != nil {
+					logger.ErrorContext(ctx, "error reading file", err)
+				}
+
+				for _, target := range targets {
+					req := link.ShortenRequest{Target: target.URL, Alias: "", OwnerID: owner}
+					_, err := service.Shorten(ctx, req)
+
+					if err != nil {
+						logger.ErrorContext(ctx, "shorten target error", slog.Any("target", target))
+					}
+				}
+				logger.InfoContext(ctx, "imported links", slog.Any("links", s.All()))
 			} else {
 				logger.ErrorContext(ctx, "flags -in and -db are required")
 				return 1

@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"strings"
 
 	"github.com/al-bo/rd-linkforge/internal/link"
 )
@@ -21,12 +22,33 @@ type Target struct {
 // ReadTargets returns every line that is not blank and does not start with '#',
 // with surrounding spaces trimmed. A reader error is returned wrapped.
 func ReadTargets(r io.Reader) ([]Target, error) {
-	return []Target{}, nil
+	var targets []Target
+	buf := make([]byte, 2048)
+	_, err := r.Read(buf)
+
+	if err != nil {
+		return []Target{}, err
+	}
+
+	src := string(buf)
+
+	lines := strings.Split(src, "\n")
+
+	for i, str := range lines {
+		r := []rune(str)
+
+		if strings.TrimSpace(str) != "" && r[0] != '#' && i != len(lines)-1 {
+			targets = append(targets, Target{Line: i, URL: str})
+		}
+	}
+
+	return targets, nil
 }
 
 // ReadLinks reads JSON Lines: one JSON object per link. A bad record returns an
 // error that names it, for example "record 3: ...". An empty input gives no links.
 func ReadLinks(r io.Reader) ([]link.Link, error) {
+
 	return []link.Link{}, nil
 }
 
@@ -75,6 +97,26 @@ func LoadFile(path string) ([]link.Link, error) {
 	}
 
 	return []link.Link{}, nil
+}
+
+// read file
+func ReadTargetsFile(path string) (targets []Target, err error) {
+	f, err := os.Open(path)
+
+	if err != nil {
+		return []Target{}, err
+	}
+	defer f.Close()
+
+	r := bufio.NewReader(f)
+
+	t, err := ReadTargets(r)
+
+	if err != nil {
+		return []Target{}, err
+	}
+
+	return t, nil
 }
 
 // SaveFile creates (or replaces) the file at path and writes the links to it.
