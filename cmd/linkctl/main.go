@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io"
 	"log/slog"
@@ -13,9 +12,6 @@ import (
 	"syscall"
 
 	"github.com/al-bo/rd-linkforge/internal/config"
-	"github.com/al-bo/rd-linkforge/internal/link"
-	"github.com/al-bo/rd-linkforge/internal/linkio"
-	"github.com/al-bo/rd-linkforge/internal/store"
 )
 
 const version = "dev"
@@ -29,21 +25,8 @@ func main() {
 	os.Exit(code)
 }
 
-func loadConfig(ctx context.Context, env EnvLoader, logger *slog.Logger) {
-	cl := config.NewEnvLoader(env)
-	config, err := cl.Load(ctx)
-	if err != nil {
-		logger.ErrorContext(ctx, "error loading config", slog.Any("error", err))
-	} else {
-		logger.InfoContext(ctx, "configuration loaded", slog.Any("config", config))
-	}
-}
-
 func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Writer) int {
 	level := slog.LevelInfo
-	s := store.New()
-	service := link.NewService(s)
-	owner := "demo"
 
 	if value, ok := env("LF_LOG_LEVEL"); ok && strings.TrimSpace(value) != "" {
 		parsed, err := config.ParseLevel(value)
@@ -57,99 +40,29 @@ func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Wr
 	h := slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level})
 	logger := slog.New(h)
 
-	exportCmd := flag.NewFlagSet("export", flag.ContinueOnError)
-	exportCmd.SetOutput(stderr)
-	dbPath := exportCmd.String("db", "", "Path to database (required)")
-	outPath := exportCmd.String("out", "", "Path to output (optional)")
-	exportCmd.Usage = func() {
-		fmt.Fprintf(stderr, "Usage: linkctl export -db FILE [-out FILE]\n\n flags:\n")
-		exportCmd.PrintDefaults()
-	}
-
-	importCmd := flag.NewFlagSet("import", flag.ContinueOnError)
-	importCmd.SetOutput(stderr)
-	inPath := importCmd.String("in", "", "path to source file (required)")
-	dstPath := importCmd.String("db", "", "Path to database (required)")
-	importCmd.Usage = func() {
-		fmt.Fprintf(stderr, "Usage: linkctl import -in File -db FILE\n\n flags:\n")
-		importCmd.PrintDefaults()
-	}
-
 	if len(args) == 0 {
 		logger.ErrorContext(ctx, "command is required")
 		return 2
 	}
 	switch args[0] {
 	case "import":
-		{
-			if err := importCmd.Parse(args[1:]); err != nil {
-				return 2
-			}
-			if *inPath != "" && *dstPath != "" {
-				logger.InfoContext(ctx, "import started", slog.String("in", *inPath), slog.String("db", *dstPath))
-				targets, err := linkio.ReadTargetsFile(*inPath)
-				logger.InfoContext(ctx, "imported targets", slog.Any("targets", targets))
-				if err != nil {
-					logger.ErrorContext(ctx, "error reading file", err)
-				}
-
-				for _, target := range targets {
-					req := link.ShortenRequest{Target: target.URL, Alias: "", OwnerID: owner}
-					_, err := service.Shorten(ctx, req)
-
-					if err != nil {
-						logger.ErrorContext(ctx, "shorten target error", slog.Any("target", target))
-					}
-				}
-				logger.InfoContext(ctx, "imported links", slog.Any("links", s.All()))
-			} else {
-				logger.ErrorContext(ctx, "flags -in and -db are required")
-				return 1
-			}
-			break
-		}
+		return runImport(ctx, args[1:], logger, stdout, stderr)
 	case "config":
-		{
-			loadConfig(ctx, env, logger)
-			break
-		}
+		return runConfig(ctx, args[1:], env, logger, stdout, stderr)
 	case "export":
-		{
-			if err := exportCmd.Parse(args[1:]); err != nil {
-				return 2
-			}
-			if *dbPath == "" {
-				logger.ErrorContext(ctx, "flag -db is required")
-				exportCmd.Usage()
-				return 1
-			}
-
-			logger.InfoContext(ctx, "export started", slog.String("db", *dbPath))
-			if *outPath != "" {
-				logger.InfoContext(ctx, "export destination", slog.String("out", *outPath))
-			} else {
-				logger.InfoContext(ctx, "export destination", slog.String("out", "stdout"))
-			}
-
-			return 0
-		}
-	default:
-		{
-			f := "out.txt"
-			tmp := []link.Link{
-				{ID: 1, Code: "adb", Target: "http://sample.com", OwnerID: "abc"},
-				{ID: 2, Code: "bar", Target: "http://sample2.com", OwnerID: "abc"},
-			}
-			e := linkio.SaveFile(f, tmp)
-
-			if e != nil {
-				logger.ErrorContext(ctx, "save file failed", slog.String("path", f), slog.Any("error", e))
-			} else {
-				logger.InfoContext(ctx, "file saved", slog.String("path", f))
-			}
+		return runExport(ctx, args[1:], logger, stdout, stderr)
+	case "version":
+		if len(args) != 1 {
+			logger.ErrorContext(ctx, "version does not accept arguments")
 			return 2
 		}
+		if _, err := fmt.Fprintf(stdout, "linkctl %s\n", version); err != nil {
+			logger.ErrorContext(ctx, "error writing version", slog.Any("error", err))
+			return 1
+		}
+		return 0
+	default:
+		logger.ErrorContext(ctx, "unknown command")
+		return 2
 	}
-
-	return 0
 }
