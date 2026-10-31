@@ -81,6 +81,7 @@ func WriteCSV(w io.Writer, links []link.Link) error {
 
 // LoadFile reads a JSON Lines file. A missing file returns an error that wraps fs.ErrNotExist.
 func LoadFile(path string) ([]link.Link, error) {
+	var result []link.Link
 	f, err := os.Open(path)
 
 	if err != nil {
@@ -96,7 +97,26 @@ func LoadFile(path string) ([]link.Link, error) {
 		return nil, fmt.Errorf("read file %q: %w", path, err)
 	}
 
-	return []link.Link{}, nil
+	str := string(buf)
+
+	lines := strings.Split(str, "\n")
+
+	for i, line := range lines {
+		if i != len(lines)-1 {
+			var l link.Link
+
+			err := json.Unmarshal([]byte(line), &l)
+
+			if err != nil {
+				// maybe add log ?
+				continue
+			}
+			result = append(result, l)
+		}
+
+	}
+
+	return result, nil
 }
 
 // read file

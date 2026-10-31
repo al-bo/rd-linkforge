@@ -42,8 +42,22 @@ func runImport(ctx context.Context, args []string, logger *slog.Logger, stdout, 
 		return 1
 	}
 
+	db, err := linkio.LoadFile(*dbPath)
+
+	if err != nil {
+		logger.ErrorContext(ctx, "error reading database", slog.Any("error", err))
+	} else {
+		logger.InfoContext(ctx, "import database success", slog.Any("db", db))
+	}
+
 	st := store.New()
-	service := link.NewService(st)
+	for _, stored := range db {
+		st.Create(ctx, stored)
+	}
+
+	lastID := st.GetMaxID(ctx)
+	service := link.NewService(st, link.WithFirstID(lastID+1))
+
 	skipped := 0
 	for _, target := range targets {
 		if err := ctx.Err(); err != nil {
@@ -66,6 +80,14 @@ func runImport(ctx context.Context, args []string, logger *slog.Logger, stdout, 
 		return 1
 	}
 	logger.InfoContext(ctx, "import finished", slog.Int("imported", st.Count()), slog.Int("skipped", skipped))
+
+	saveErr := linkio.SaveFile(*dbPath, st.All())
+
+	if saveErr != nil {
+		logger.ErrorContext(ctx, "save to database failed", slog.Any("error", saveErr))
+		return 1
+	}
+
 	if skipped > 0 {
 		return 1
 	}

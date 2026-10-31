@@ -132,3 +132,19 @@ func (s *Store) Delete(ctx context.Context, id uint64) error {
 
 	return nil
 }
+
+func (s *Store) GetMaxID(ctx context.Context) uint64 {
+	all := s.All()
+
+	maxItem := slices.MaxFunc(all, func(a, b link.Link) int {
+		if a.ID > b.ID {
+			return 1
+		}
+		if a.ID < b.ID {
+			return -1
+		}
+		return 0
+	})
+
+	return maxItem.ID
+}
