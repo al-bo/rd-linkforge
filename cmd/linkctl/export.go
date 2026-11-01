@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"flag"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/al-bo/rd-linkforge/internal/link"
 	"github.com/al-bo/rd-linkforge/internal/linkio"
 )
 
@@ -42,14 +40,13 @@ func runExport(ctx context.Context, args []string, logger *slog.Logger, stdout, 
 
 	if err != nil {
 		logger.ErrorContext(ctx, "error reading database", slog.Any("error", err))
+		return 1
 	} else {
 		logger.InfoContext(ctx, "import database success", slog.Any("db", db))
 	}
 
-	csv, err := link.ListToCSV(db)
-
-	if err != nil {
-		logger.ErrorContext(ctx, "error exporting to csv:", slog.Any("error", err))
+	if len(db) == 0 {
+		logger.ErrorContext(ctx, "error exporting to csv", slog.Any("error", linkio.NoEmptyArray))
 		return 1
 	}
 
@@ -60,24 +57,23 @@ func runExport(ctx context.Context, args []string, logger *slog.Logger, stdout, 
 
 		if err != nil {
 			logger.ErrorContext(ctx, "error creating file for csv output:", slog.Any("error", err))
+			return 1
 		}
-		defer file.Close()
+		writeErr := linkio.WriteCSV(file, db)
+		closeErr := file.Close()
 
-		w := bufio.NewWriter(file)
-		_, writeError := w.WriteString(csv)
-
-		if writeError != nil {
-			logger.ErrorContext(ctx, "error writing csv to output:", slog.Any("error", err))
+		if writeErr != nil {
+			logger.ErrorContext(ctx, "error writing csv to output", slog.Any("error", writeErr))
 		}
-
-		e := w.Flush()
-
-		if e != nil {
-			logger.ErrorContext(ctx, "error writing flush file:", slog.Any("error", err))
+		if closeErr != nil {
+			logger.ErrorContext(ctx, "error closing csv output", slog.Any("error", closeErr))
+		}
+		if writeErr != nil || closeErr != nil {
+			return 1
 		}
 	} else {
 		logger.InfoContext(ctx, "export destination", slog.String("out", "stdout"))
-		if _, err := io.WriteString(stdout, csv); err != nil {
+		if err := linkio.WriteCSV(stdout, db); err != nil {
 			logger.ErrorContext(ctx, "error writing csv to stdout", slog.Any("error", err))
 			return 1
 		}

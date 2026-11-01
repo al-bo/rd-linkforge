@@ -14,7 +14,7 @@ import (
 	"github.com/al-bo/rd-linkforge/internal/config"
 )
 
-const version = "dev"
+var version = "dev"
 
 type EnvLoader = func(string) (string, bool)
 

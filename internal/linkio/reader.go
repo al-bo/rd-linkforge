@@ -73,12 +73,6 @@ func WriteLinks(w io.Writer, links []link.Link) error {
 	return nil
 }
 
-// WriteCSV writes the header id,code,target,owner_id,created_at,expires_at and one row per link.
-// Times are RFC 3339 in UTC; a link that never expires has an empty expires_at.
-func WriteCSV(w io.Writer, links []link.Link) error {
-	return nil
-}
-
 // LoadFile reads a JSON Lines file. A missing file returns an error that wraps fs.ErrNotExist.
 func LoadFile(path string) ([]link.Link, error) {
 	var result []link.Link
