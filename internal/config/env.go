@@ -18,7 +18,7 @@ var (
 
 var _ Loader = (*EnvLoader)(nil)
 
-type EnvLoader struct { /* your fields */
+type EnvLoader struct {
 	lookup func(string) (string, bool)
 }
 
@@ -38,91 +38,75 @@ func NewEnvLoader(lookup func(key string) (value string, ok bool)) *EnvLoader {
 
 func (l *EnvLoader) Load(ctx context.Context) (Config, error) {
 	if err := ctx.Err(); err != nil {
-		return Config{}, nil
+		return Config{}, err
 	}
 
-	httpAddr, ok := l.lookup("LF_HTTP_ADDR")
-
-	if !ok {
-		httpAddr = ":8080"
-	} else if _, _, err := net.SplitHostPort(httpAddr); err != nil {
-		return Config{}, fmt.Errorf("LF_HTTP_ADDR: %w", err)
+	cfg := Config{
+		HTTPAddr:  l.value("LF_HTTP_ADDR", ":8080"),
+		AdminAddr: l.value("LF_ADMIN_ADDR", "127.0.0.1:6060"),
+		TCPAddr:   l.value("LF_TCP_ADDR", ":7070"),
+		PGDSN:     l.value("LF_PG_DSN", ""),
+		MongoURI:  l.value("LF_MONGO_URI", ""),
+		JWTSecret: l.value("LF_JWT_SECRET", ""),
 	}
 
-	adminAddr, ok := l.lookup("LF_ADMIN_ADDR")
-
-	if !ok {
-		adminAddr = "127.0.0.1:6060"
-	} else if _, _, err := net.SplitHostPort(adminAddr); err != nil {
-		return Config{}, fmt.Errorf("LF_ADMIN_ADDR: %w", err)
-	}
-
-	tcpAddr, ok := l.lookup("LF_TCP_ADDR")
-
-	if !ok {
-		tcpAddr = ":7070"
-	} else if _, _, err := net.SplitHostPort(tcpAddr); err != nil {
-		return Config{}, fmt.Errorf("LF_TCP_ADDR: %w", err)
-	}
-
-	pgDSN, ok := l.lookup("LF_PG_DSN")
-
-	if !ok {
-		return Config{}, fmt.Errorf("LF_PG_DSN: %w", ErrMissing)
-	}
-
-	mongoUri, ok := l.lookup("LF_MONGO_URI")
-
-	if !ok {
-		return Config{}, fmt.Errorf("LF_MONGO_URI: %w", ErrMissing)
-	}
-
-	jwtSecret, ok := l.lookup("LF_JWT_SECRET")
-
-	if !ok {
-		return Config{}, fmt.Errorf("LF_JWT_SECRET: %w", ErrMissing)
-	}
-
-	var cacheSize int
-	cache, ok := l.lookup("LF_CACHE_SIZE")
-
-	if ok {
-		num, err := strconv.Atoi(cache)
-
-		if err != nil {
-			return Config{}, fmt.Errorf("LF_CACHE_SIZE: %w", err)
+	var problems []error
+	for _, address := range []struct{ key, value string }{
+		{"LF_HTTP_ADDR", cfg.HTTPAddr},
+		{"LF_ADMIN_ADDR", cfg.AdminAddr},
+		{"LF_TCP_ADDR", cfg.TCPAddr},
+	} {
+		if err := validateAddress(address.value); err != nil {
+			problems = append(problems, fmt.Errorf("%s: %w", address.key, err))
 		}
-
-		cacheSize = num
-	} else {
-		cacheSize = 100000
 	}
-
-	level, ok := l.lookup("LF_LOG_LEVEL")
-	var logLevel slog.Level
-
-	if ok {
-		l, err := ParseLevel(level)
-
-		if err != nil {
-			return Config{}, fmt.Errorf("LF_LOG_LEVEL: %w", err)
+	for _, credential := range []struct{ key, value string }{
+		{"LF_PG_DSN", cfg.PGDSN},
+		{"LF_MONGO_URI", cfg.MongoURI},
+		{"LF_JWT_SECRET", cfg.JWTSecret},
+	} {
+		if credential.value == "" {
+			problems = append(problems, fmt.Errorf("%s: %w", credential.key, ErrMissing))
 		}
-
-		logLevel = l
-	} else {
-		logLevel = slog.LevelInfo
+	}
+	if cfg.JWTSecret != "" && len(cfg.JWTSecret) < 32 {
+		problems = append(problems, fmt.Errorf("LF_JWT_SECRET: %w: must contain at least 32 bytes", ErrInvalid))
 	}
 
-	return Config{
-		HTTPAddr:  httpAddr,
-		AdminAddr: adminAddr,
-		TCPAddr:   tcpAddr,
-		PGDSN:     pgDSN,
-		MongoURI:  mongoUri,
-		JWTSecret: jwtSecret,
-		CacheSize: cacheSize,
-		LogLevel:  logLevel,
-	}, nil
+	cacheSize, err := strconv.Atoi(l.value("LF_CACHE_SIZE", "100000"))
+	if err != nil || cacheSize <= 0 {
+		problems = append(problems, fmt.Errorf("LF_CACHE_SIZE: %w: must be a positive integer", ErrInvalid))
+	}
+	cfg.CacheSize = cacheSize
+	level, err := ParseLevel(l.value("LF_LOG_LEVEL", "info"))
+	if err != nil {
+		problems = append(problems, fmt.Errorf("LF_LOG_LEVEL: %w", err))
+	}
+	cfg.LogLevel = level
+	if err := errors.Join(problems...); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func (l *EnvLoader) value(key, fallback string) string {
+	value, ok := l.lookup(key)
+	if !ok || strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(value)
+}
+
+func validateAddress(value string) error {
+	_, port, err := net.SplitHostPort(value)
+	if err != nil {
+		return fmt.Errorf("%w: expected host:port", ErrInvalid)
+	}
+	number, err := strconv.Atoi(port)
+	if err != nil || number < 1 || number > 65535 {
+		return fmt.Errorf("%w: port must be an integer from 1 to 65535", ErrInvalid)
+	}
+	return nil
 }
 
 // ParseLevel accepts debug, info, warn and error in any letter case, with spaces around.
@@ -138,19 +122,19 @@ func ParseLevel(s string) (slog.Level, error) {
 	case "error":
 		return slog.LevelError, nil
 	default:
-		return 0, fmt.Errorf("log level %q: %w", s, ErrInvalid)
+		return 0, fmt.Errorf("%w: expected debug, info, warn or error", ErrInvalid)
 	}
 }
 
 func (c Config) LogValue() slog.Value {
 	return slog.GroupValue(
-		slog.String("HTTPAddr", c.HTTPAddr),
-		slog.String("AdminAddr", c.AdminAddr),
-		slog.String("TCPAddr", c.TCPAddr),
-		slog.String("PGDSN", "[redacted]"),
-		slog.String("MongoURI", "[redacted]"),
-		slog.String("JWTSecret", "[redacted]"),
-		slog.Int("CacheSize", c.CacheSize),
-		slog.String("LogLevel", c.LogLevel.String()),
+		slog.String("http_addr", c.HTTPAddr),
+		slog.String("admin_addr", c.AdminAddr),
+		slog.String("tcp_addr", c.TCPAddr),
+		slog.String("pg_dsn", "[redacted]"),
+		slog.String("mongo_uri", "[redacted]"),
+		slog.String("jwt_secret", "[redacted]"),
+		slog.Int("cache_size", c.CacheSize),
+		slog.String("log_level", c.LogLevel.String()),
 	)
 }
