@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/al-bo/rd-linkforge/internal/link"
 )
@@ -66,6 +67,17 @@ func TestReadLinksWrapsErrors(t *testing.T) {
 	var syntaxErr *json.SyntaxError
 	if !errors.As(err, &syntaxErr) {
 		t.Fatalf("expected wrapped JSON error, got %v", err)
+	}
+}
+
+func TestReadLinksDoesNotExposeInvalidFieldValues(t *testing.T) {
+	_, err := ReadLinks(strings.NewReader("{\"CreatedAt\":\"PRIVATE_TIMESTAMP_VALUE\"}\n"))
+	var parseErr *time.ParseError
+	if !errors.As(err, &parseErr) {
+		t.Fatalf("timestamp error was not preserved: %v", err)
+	}
+	if !strings.Contains(err.Error(), "record 1:") || strings.Contains(err.Error(), "PRIVATE_TIMESTAMP_VALUE") {
+		t.Fatalf("unsafe record error: %v", err)
 	}
 }
 

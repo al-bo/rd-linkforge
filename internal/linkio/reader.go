@@ -37,7 +37,7 @@ func ReadTargets(r io.Reader) ([]Target, error) {
 		r := []rune(str)
 
 		if strings.TrimSpace(str) != "" && r[0] != '#' && i != len(lines)-1 {
-			targets = append(targets, Target{Line: i, URL: str})
+			targets = append(targets, Target{Line: i + 1, URL: str})
 		}
 	}
 
@@ -60,7 +60,7 @@ func ReadLinks(r io.Reader) ([]link.Link, error) {
 
 		var l *link.Link
 		if decodeErr := json.Unmarshal(line, &l); decodeErr != nil {
-			return nil, fmt.Errorf("record %d: decode: %w", record, decodeErr)
+			return nil, fmt.Errorf("record %d: decode: %w", record, &decodeError{err: decodeErr})
 		}
 		if l == nil {
 			return nil, fmt.Errorf("record %d: expected a JSON object", record)
@@ -72,20 +72,27 @@ func ReadLinks(r io.Reader) ([]link.Link, error) {
 	}
 }
 
+// Decoder messages can include field values; keep those out of errors and logs.
+type decodeError struct{ err error }
+
+func (e *decodeError) Error() string { return "invalid link JSON" }
+
+func (e *decodeError) Unwrap() error { return e.err }
+
 // WriteLinks writes JSON Lines: one link per line.
 func WriteLinks(w io.Writer, links []link.Link) error {
 	for _, link := range links {
 		b, err := json.Marshal(link)
 
 		if err != nil {
-			return fmt.Errorf("Error encoding link: %w", err)
+			return fmt.Errorf("encode link: %w", err)
 		}
 		newline := []byte("\n")
 		b = append(b, newline...)
 		n, err := w.Write(b)
 
 		if err != nil {
-			return fmt.Errorf("Error writing links: %w %v", err, n)
+			return fmt.Errorf("write links after %d bytes: %w", n, err)
 		}
 
 	}

@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 
 	"github.com/al-bo/rd-linkforge/internal/link"
@@ -36,28 +38,39 @@ func runImport(ctx context.Context, args []string, logger *slog.Logger, stdout, 
 	}
 
 	logger.InfoContext(ctx, "import started", slog.String("in", *inPath), slog.String("db", *dbPath))
+	if err := ctx.Err(); err != nil {
+		logger.ErrorContext(ctx, "import canceled", slog.Any("error", err))
+		return 1
+	}
 	targets, err := linkio.ReadTargetsFile(*inPath)
 	if err != nil {
-		logger.ErrorContext(ctx, "error reading file", slog.Any("error", err))
+		logger.ErrorContext(ctx, "read input failed", slog.Any("error", err))
 		return 1
 	}
 
 	db, err := linkio.LoadFile(*dbPath)
 
-	if err != nil {
-		logger.ErrorContext(ctx, "error reading database", slog.Any("error", err))
-	} else {
-		logger.InfoContext(ctx, "import database success", slog.Any("db", db))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		logger.ErrorContext(ctx, "load database failed", slog.Any("error", err))
+		return 1
 	}
+	logger.DebugContext(ctx, "database loaded", slog.Int("count", len(db)))
 
 	st := store.New()
+	var maxID uint64
 	for _, stored := range db {
-		st.Create(ctx, stored)
+		if _, err := st.Create(ctx, stored); err != nil {
+			logger.ErrorContext(ctx, "restore link failed", slog.Uint64("id", stored.ID), slog.Any("error", err))
+			return 1
+		}
+		if stored.ID > maxID {
+			maxID = stored.ID
+		}
 	}
 
-	lastID := st.GetMaxID(ctx)
-	service := link.NewService(st, link.WithFirstID(lastID+1))
+	service := link.NewService(st, link.WithFirstID(maxID+1))
 
+	imported := 0
 	skipped := 0
 	for _, target := range targets {
 		if err := ctx.Err(); err != nil {
@@ -69,24 +82,32 @@ func runImport(ctx context.Context, args []string, logger *slog.Logger, stdout, 
 			OwnerID: "cli",
 		})
 		if err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				logger.ErrorContext(ctx, "import canceled", slog.Any("error", ctxErr))
+				return 1
+			}
 			skipped++
 			logger.WarnContext(ctx, "target skipped", slog.Int("line", target.Line), slog.Any("error", err))
 			continue
 		}
+		imported++
 		logger.DebugContext(ctx, "target imported", slog.Int("line", target.Line), slog.Uint64("id", created.ID))
 	}
 	if err := ctx.Err(); err != nil {
 		logger.ErrorContext(ctx, "import canceled", slog.Any("error", err))
 		return 1
 	}
-	logger.InfoContext(ctx, "import finished", slog.Int("imported", st.Count()), slog.Int("skipped", skipped))
-
 	saveErr := linkio.SaveFile(*dbPath, st.All())
 
 	if saveErr != nil {
-		logger.ErrorContext(ctx, "save to database failed", slog.Any("error", saveErr))
+		logger.ErrorContext(ctx, "save database failed", slog.Any("error", saveErr))
 		return 1
 	}
+	if _, err := fmt.Fprintf(stdout, "imported: %d\nskipped: %d\n", imported, skipped); err != nil {
+		logger.ErrorContext(ctx, "write import result failed", slog.Any("error", err))
+		return 1
+	}
+	logger.InfoContext(ctx, "import finished", slog.Int("imported", imported), slog.Int("skipped", skipped))
 
 	if skipped > 0 {
 		return 1

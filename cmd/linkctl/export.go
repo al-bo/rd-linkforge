@@ -39,39 +39,39 @@ func runExport(ctx context.Context, args []string, logger *slog.Logger, stdout, 
 	db, err := linkio.LoadFile(*dbPath)
 
 	if err != nil {
-		logger.ErrorContext(ctx, "error reading database", slog.Any("error", err))
+		logger.ErrorContext(ctx, "load database failed", slog.Any("error", err))
 		return 1
-	} else {
-		logger.InfoContext(ctx, "import database success", slog.Any("db", db))
 	}
+	logger.DebugContext(ctx, "database loaded", slog.Int("count", len(db)))
 
 	if *outPath != "" {
-		logger.InfoContext(ctx, "export destination", slog.String("out", *outPath))
+		logger.DebugContext(ctx, "export destination", slog.String("out", *outPath))
 
 		file, err := os.Create(*outPath)
 
 		if err != nil {
-			logger.ErrorContext(ctx, "error creating file for csv output:", slog.Any("error", err))
+			logger.ErrorContext(ctx, "create export file failed", slog.Any("error", err))
 			return 1
 		}
 		writeErr := linkio.WriteCSV(file, db)
 		closeErr := file.Close()
 
 		if writeErr != nil {
-			logger.ErrorContext(ctx, "error writing csv to output", slog.Any("error", writeErr))
+			logger.ErrorContext(ctx, "write export failed", slog.Any("error", writeErr))
 		}
 		if closeErr != nil {
-			logger.ErrorContext(ctx, "error closing csv output", slog.Any("error", closeErr))
+			logger.ErrorContext(ctx, "close export file failed", slog.Any("error", closeErr))
 		}
 		if writeErr != nil || closeErr != nil {
 			return 1
 		}
 	} else {
-		logger.InfoContext(ctx, "export destination", slog.String("out", "stdout"))
+		logger.DebugContext(ctx, "export destination", slog.String("out", "stdout"))
 		if err := linkio.WriteCSV(stdout, db); err != nil {
-			logger.ErrorContext(ctx, "error writing csv to stdout", slog.Any("error", err))
+			logger.ErrorContext(ctx, "write export failed", slog.Any("error", err))
 			return 1
 		}
 	}
+	logger.InfoContext(ctx, "export finished", slog.Int("exported", len(db)))
 	return 0
 }

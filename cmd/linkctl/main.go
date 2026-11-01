@@ -32,7 +32,7 @@ func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Wr
 		parsed, err := config.ParseLevel(value)
 		if err != nil {
 			logger := slog.New(slog.NewTextHandler(stderr, nil))
-			logger.ErrorContext(ctx, "invalid log level", slog.Any("error", err))
+			logger.ErrorContext(ctx, "invalid log level", slog.Any("error", fmt.Errorf("LF_LOG_LEVEL: %w", err)))
 			return 2
 		}
 		level = parsed
@@ -57,7 +57,7 @@ func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Wr
 			return 2
 		}
 		if _, err := fmt.Fprintf(stdout, "linkctl %s\n", version); err != nil {
-			logger.ErrorContext(ctx, "error writing version", slog.Any("error", err))
+			logger.ErrorContext(ctx, "write version failed", slog.Any("error", err))
 			return 1
 		}
 		return 0
