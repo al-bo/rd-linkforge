@@ -45,11 +45,6 @@ func runExport(ctx context.Context, args []string, logger *slog.Logger, stdout, 
 		logger.InfoContext(ctx, "import database success", slog.Any("db", db))
 	}
 
-	if len(db) == 0 {
-		logger.ErrorContext(ctx, "error exporting to csv", slog.Any("error", linkio.NoEmptyArray))
-		return 1
-	}
-
 	if *outPath != "" {
 		logger.InfoContext(ctx, "export destination", slog.String("out", *outPath))
 

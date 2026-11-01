@@ -1,35 +1,44 @@
 package linkio
 
 import (
-	"errors"
+	"encoding/csv"
 	"fmt"
 	"io"
-	"strings"
+	"strconv"
+	"time"
 
 	"github.com/al-bo/rd-linkforge/internal/link"
 )
 
-const header string = "ID,Code,Target,OwnerID,CreatedAT,ExpiresAT"
-const newline string = "\n"
-
-var NoEmptyArray = errors.New("Convert to csv: no empty array")
-
-// WriteCSV writes links as CSV to w.
+// WriteCSV writes the header id,code,target,owner_id,created_at,expires_at and one row per link.
+// Times are RFC 3339 in UTC; a link that never expires has an empty expires_at.
 func WriteCSV(w io.Writer, links []link.Link) error {
-	if len(links) == 0 {
-		return NoEmptyArray
+	writer := csv.NewWriter(w)
+	if err := writer.Write([]string{"id", "code", "target", "owner_id", "created_at", "expires_at"}); err != nil {
+		return fmt.Errorf("write CSV header: %w", err)
 	}
-	var builder strings.Builder
-	builder.WriteString(header)
 
-	for _, l := range links {
-		if _, err := fmt.Fprintf(&builder, "%v%v,%v,%v,%v,%v,%v", newline, l.ID, l.Code, l.Target, l.OwnerID, l.CreatedAt, l.ExpiresAt); err != nil {
-			return fmt.Errorf("write CSV row: %w", err)
+	for i, l := range links {
+		expiresAt := ""
+		if !l.ExpiresAt.IsZero() {
+			expiresAt = l.ExpiresAt.UTC().Format(time.RFC3339)
+		}
+		row := []string{
+			strconv.FormatUint(l.ID, 10),
+			l.Code,
+			l.Target,
+			l.OwnerID,
+			l.CreatedAt.UTC().Format(time.RFC3339),
+			expiresAt,
+		}
+		if err := writer.Write(row); err != nil {
+			return fmt.Errorf("write CSV record %d: %w", i+1, err)
 		}
 	}
 
-	if _, err := io.WriteString(w, builder.String()); err != nil {
-		return fmt.Errorf("write CSV: %w", err)
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return fmt.Errorf("flush CSV: %w", err)
 	}
 	return nil
 }

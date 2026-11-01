@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"strings"
 
@@ -48,8 +47,29 @@ func ReadTargets(r io.Reader) ([]Target, error) {
 // ReadLinks reads JSON Lines: one JSON object per link. A bad record returns an
 // error that names it, for example "record 3: ...". An empty input gives no links.
 func ReadLinks(r io.Reader) ([]link.Link, error) {
+	reader := bufio.NewReader(r)
+	var links []link.Link
+	for record := 1; ; record++ {
+		line, err := reader.ReadBytes('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("record %d: read: %w", record, err)
+		}
+		if len(line) == 0 && errors.Is(err, io.EOF) {
+			return links, nil
+		}
 
-	return []link.Link{}, nil
+		var l *link.Link
+		if decodeErr := json.Unmarshal(line, &l); decodeErr != nil {
+			return nil, fmt.Errorf("record %d: decode: %w", record, decodeErr)
+		}
+		if l == nil {
+			return nil, fmt.Errorf("record %d: expected a JSON object", record)
+		}
+		links = append(links, *l)
+		if errors.Is(err, io.EOF) {
+			return links, nil
+		}
+	}
 }
 
 // WriteLinks writes JSON Lines: one link per line.
@@ -75,42 +95,17 @@ func WriteLinks(w io.Writer, links []link.Link) error {
 
 // LoadFile reads a JSON Lines file. A missing file returns an error that wraps fs.ErrNotExist.
 func LoadFile(path string) ([]link.Link, error) {
-	var result []link.Link
 	f, err := os.Open(path)
-
 	if err != nil {
-		return nil, fmt.Errorf("load file %q: %w", path, fs.ErrNotExist)
-
+		return nil, fmt.Errorf("load file %q: %w", path, err)
 	}
-
 	defer f.Close()
 
-	buf := make([]byte, 1024)
-	_, err = f.Read(buf)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("read file %q: %w", path, err)
+	links, err := ReadLinks(f)
+	if err != nil {
+		return nil, fmt.Errorf("load file %q: %w", path, err)
 	}
-
-	str := string(buf)
-
-	lines := strings.Split(str, "\n")
-
-	for i, line := range lines {
-		if i != len(lines)-1 {
-			var l link.Link
-
-			err := json.Unmarshal([]byte(line), &l)
-
-			if err != nil {
-				// maybe add log ?
-				continue
-			}
-			result = append(result, l)
-		}
-
-	}
-
-	return result, nil
+	return links, nil
 }
 
 // read file
