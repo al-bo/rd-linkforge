@@ -119,3 +119,24 @@ func TestLoadFileErrors(t *testing.T) {
 		t.Fatalf("invalid record error = %v", err)
 	}
 }
+
+func TestWriteLinksWrapsErrors(t *testing.T) {
+	want := errors.New("destination unavailable")
+	if err := WriteLinks(failingWriter{err: want}, []link.Link{{ID: 1}}); !errors.Is(err, want) {
+		t.Fatalf("write error = %v, want wrapped writer error", err)
+	}
+	var out bytes.Buffer
+	err := WriteLinks(&out, []link.Link{{ID: 1, CreatedAt: time.Date(10000, 1, 1, 0, 0, 0, 0, time.UTC)}})
+	var marshalErr *json.MarshalerError
+	if !errors.As(err, &marshalErr) || out.Len() != 0 {
+		t.Fatalf("invalid time must return an encoding error before writing; error=%v output=%q", err, out.String())
+	}
+}
+
+func TestSaveFileCreateError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "links.jsonl")
+	err := SaveFile(path, []link.Link{{ID: 1}})
+	if !errors.Is(err, fs.ErrNotExist) || !strings.Contains(err.Error(), path) {
+		t.Fatalf("create error = %v", err)
+	}
+}
