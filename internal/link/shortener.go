@@ -48,7 +48,9 @@ func WithClock(now func() time.Time) Option {
 
 func WithFirstID(id uint64) Option {
 	return func(s *Service) {
-		s.nextID = id
+		if id > 0 {
+			s.nextID = id
+		}
 	}
 }
 
@@ -161,12 +163,11 @@ func (s *Service) Shorten(ctx context.Context, r ShortenRequest) (Link, error) {
 }
 
 func (s *Service) Resolve(ctx context.Context, code string) (Link, error) {
-	l, err := s.store.ByCode(ctx, code)
-
 	if err := ctx.Err(); err != nil {
 		return Link{}, err
 	}
 
+	l, err := s.store.ByCode(ctx, code)
 	if err != nil {
 		return Link{}, fmt.Errorf("link: resolve: %w", err)
 	}
