@@ -21,27 +21,21 @@ type Target struct {
 // ReadTargets returns every line that is not blank and does not start with '#',
 // with surrounding spaces trimmed. A reader error is returned wrapped.
 func ReadTargets(r io.Reader) ([]Target, error) {
+	reader := bufio.NewReader(r)
 	var targets []Target
-	buf := make([]byte, 2048)
-	_, err := r.Read(buf)
-
-	if err != nil {
-		return []Target{}, err
-	}
-
-	src := string(buf)
-
-	lines := strings.Split(src, "\n")
-
-	for i, str := range lines {
-		r := []rune(str)
-
-		if strings.TrimSpace(str) != "" && r[0] != '#' && i != len(lines)-1 {
-			targets = append(targets, Target{Line: i + 1, URL: str})
+	for line := 1; ; line++ {
+		text, err := reader.ReadString('\n')
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("read targets line %d: %w", line, err)
+		}
+		text = strings.TrimSpace(text)
+		if text != "" && !strings.HasPrefix(text, "#") {
+			targets = append(targets, Target{Line: line, URL: text})
+		}
+		if errors.Is(err, io.EOF) {
+			return targets, nil
 		}
 	}
-
-	return targets, nil
 }
 
 // ReadLinks reads JSON Lines: one JSON object per link. A bad record returns an
@@ -115,24 +109,18 @@ func LoadFile(path string) ([]link.Link, error) {
 	return links, nil
 }
 
-// read file
-func ReadTargetsFile(path string) (targets []Target, err error) {
+func ReadTargetsFile(path string) ([]Target, error) {
 	f, err := os.Open(path)
-
 	if err != nil {
-		return []Target{}, err
+		return nil, fmt.Errorf("read targets file %q: %w", path, err)
 	}
 	defer f.Close()
 
-	r := bufio.NewReader(f)
-
-	t, err := ReadTargets(r)
-
+	targets, err := ReadTargets(f)
 	if err != nil {
-		return []Target{}, err
+		return nil, fmt.Errorf("read targets file %q: %w", path, err)
 	}
-
-	return t, nil
+	return targets, nil
 }
 
 // SaveFile creates (or replaces) the file at path and writes the links to it.
