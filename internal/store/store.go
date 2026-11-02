@@ -24,6 +24,10 @@ func New() *Store {
 }
 
 func (s *Store) Create(ctx context.Context, l link.Link) (link.Link, error) {
+	if err := ctx.Err(); err != nil {
+		return link.Link{}, err
+	}
+
 	_, presentID := s.byID[l.ID]
 	_, presentCode := s.byCode[l.Code]
 
@@ -65,6 +69,10 @@ func (s *Store) Count() int {
 }
 
 func (s *Store) ByCode(ctx context.Context, code string) (link.Link, error) {
+	if err := ctx.Err(); err != nil {
+		return link.Link{}, err
+	}
+
 	l, ok := s.byCode[code]
 	if !ok {
 		return link.Link{}, link.ErrNotFound
@@ -74,6 +82,10 @@ func (s *Store) ByCode(ctx context.Context, code string) (link.Link, error) {
 }
 
 func (s *Store) ListByOwner(ctx context.Context, ownerID string, page link.Page) ([]link.Link, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	p := page.Normalize()
 	afterID, err := p.AfterID()
 	if err != nil {
@@ -103,8 +115,11 @@ func (s *Store) ListByOwner(ctx context.Context, ownerID string, page link.Page)
 }
 
 func (s *Store) Delete(ctx context.Context, id uint64) error {
-	l, ok := s.Get(id)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
+	l, ok := s.Get(id)
 	if !ok {
 		return link.ErrNotFound
 	}
@@ -113,4 +128,20 @@ func (s *Store) Delete(ctx context.Context, id uint64) error {
 	delete(s.byCode, l.Code)
 
 	return nil
+}
+
+func (s *Store) GetMaxID(ctx context.Context) uint64 {
+	all := s.All()
+
+	maxItem := slices.MaxFunc(all, func(a, b link.Link) int {
+		if a.ID > b.ID {
+			return 1
+		}
+		if a.ID < b.ID {
+			return -1
+		}
+		return 0
+	})
+
+	return maxItem.ID
 }
