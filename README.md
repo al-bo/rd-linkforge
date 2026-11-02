@@ -17,7 +17,7 @@ Homework 3 builds on the domain service and in-memory store from Homework 2:
 - `internal/linkio` reads and writes JSON Lines and exports CSV with UTC timestamps and proper quoting.
 - `linkctl` provides `import`, `export`, `config`, and `version` commands. The JSON Lines file preserves links between CLI runs.
 
-The Homework 3 regression suite includes deliberately failing tests for known gaps in `ReadTargets`, canceled `Service.Resolve` calls, and `WithFirstID(0)`. Those tests describe the required behavior and should become green when the implementation is corrected. See [Validation and known gaps](#validation-and-known-gaps).
+The Homework 3 regression suite covers text input edge cases, canceled service and store calls, and `WithFirstID(0)`. See [Validation](#validation).
 
 The original interfaces and `Noop*` implementations remain in place. The demo uses the concrete service and store. Storage lasts for the current process and is intended for sequential use at this stage.
 
@@ -75,7 +75,7 @@ The `import`, `export`, and `version` commands do not require database credentia
 
 ## Import and export
 
-The input file contains one target URL per line. The required input format supports blank lines, comments starting with `#` after trimming, and URLs with surrounding whitespace. Some input cases still fail in the current implementation; see the known gaps below. This example uses newline-terminated URLs that work now:
+The input file contains one target URL per line. Blank lines and comments starting with `#` after trimming are skipped. Surrounding whitespace is removed from URLs. Both LF and CRLF line endings are supported, and the final line does not need a newline:
 
 ```bash
 printf 'https://example.com\nhttps://go.dev\n' > urls.txt
@@ -171,7 +171,7 @@ make tidy
 
 Linting uses [golangci-lint](https://golangci-lint.run) (`brew install golangci-lint`).
 
-## Validation and known gaps
+## Validation
 
 Run the full Homework 3 checks:
 
@@ -193,13 +193,7 @@ Required package coverage:
 
 The tests use injected environment lookups, `t.TempDir()` for files, and deterministic cancellation without `time.Sleep`. The three original `hw2_test.go` files remain unchanged.
 
-The full test run is currently expected to fail on these regression cases:
-
-- `ReadTargets` reads only one 2048-byte buffer, loses the final URL without a newline, does not trim URL whitespace or indented comments correctly, and mishandles empty input, CRLF, fragmented reads, and EOF returned with data. Its reader error is also returned without wrapping.
-- `Service.Resolve` reaches the store before checking a canceled or expired context.
-- `WithFirstID(0)` resets the counter to zero instead of ignoring the option.
-
-Tests for these cases are active, with assertions for the required behavior. They are not skipped or marked as successful expected failures. The store methods also still need their context checks moved to the first operation; cancellation tests verify returned errors and unchanged data, but cannot observe side-effect-free map reads before the check.
+Regression tests cover complete and fragmented input reads, empty input, whitespace and comments, CRLF, missing final newlines, and wrapped reader errors. Service and store methods check context before accessing data or validating requests. A canceled `Shorten` does not consume an ID or reach the store, and `WithFirstID(0)` leaves the counter unchanged.
 
 ## Milestones
 
