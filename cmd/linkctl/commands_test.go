@@ -53,6 +53,7 @@ func TestCommandUsageErrors(t *testing.T) {
 		{"config unknown flag", []string{"config", "-unknown"}},
 		{"config positional argument", []string{"config", "extra"}},
 		{"version extra argument", []string{"version", "extra"}},
+		{"version unknown flag", []string{"version", "-unknown"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

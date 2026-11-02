@@ -52,15 +52,7 @@ func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Wr
 	case "export":
 		return runExport(ctx, args[1:], logger, stdout, stderr)
 	case "version":
-		if len(args) != 1 {
-			logger.ErrorContext(ctx, "version does not accept arguments")
-			return 2
-		}
-		if _, err := fmt.Fprintf(stdout, "linkctl %s\n", version); err != nil {
-			logger.ErrorContext(ctx, "write version failed", slog.Any("error", err))
-			return 1
-		}
-		return 0
+		return runVersion(ctx, args[1:], logger, stdout, stderr)
 	default:
 		logger.ErrorContext(ctx, "unknown command")
 		return 2
