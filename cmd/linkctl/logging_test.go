@@ -130,16 +130,18 @@ func TestConfigLoggingRedactsCredentials(t *testing.T) {
 	}
 }
 
-func TestConfigLoggingReportsAllMissingVariables(t *testing.T) {
+func TestConfigReportsMissingVariablesOnSeparateLines(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{"config"}, loggingEnv(t, nil), &stdout, &stderr)
 	if code != 1 || stdout.Len() != 0 {
 		t.Fatalf("code=%d stdout=%q", code, stdout.String())
 	}
-	for _, text := range []string{"level=ERROR", "invalid configuration:", "LF_PG_DSN:", "LF_MONGO_URI:", "LF_JWT_SECRET:"} {
-		if !strings.Contains(stderr.String(), text) {
-			t.Errorf("missing %q: %s", text, stderr.String())
-		}
+	want := "invalid configuration:\n" +
+		"LF_PG_DSN: config: required variable is not set\n" +
+		"LF_MONGO_URI: config: required variable is not set\n" +
+		"LF_JWT_SECRET: config: required variable is not set\n"
+	if stderr.String() != want {
+		t.Errorf("stderr=%q, want %q", stderr.String(), want)
 	}
 }
 

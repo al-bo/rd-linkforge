@@ -23,7 +23,7 @@ func runConfig(ctx context.Context, args []string, env EnvLoader, logger *slog.L
 
 	cfg, err := config.NewEnvLoader(env).Load(ctx)
 	if err != nil {
-		logger.ErrorContext(ctx, "invalid configuration:", slog.Any("error", err))
+		fmt.Fprintf(stderr, "invalid configuration:\n%v\n", err)
 		return 1
 	}
 	logger.InfoContext(ctx, "configuration loaded", slog.Any("config", cfg))

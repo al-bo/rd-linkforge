@@ -26,6 +26,9 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Writer) int {
+	if env == nil {
+		env = os.LookupEnv
+	}
 	level := slog.LevelInfo
 
 	if value, ok := env("LF_LOG_LEVEL"); ok && strings.TrimSpace(value) != "" {
