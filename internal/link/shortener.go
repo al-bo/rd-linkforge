@@ -36,6 +36,7 @@ type Service struct {
 	store  Store
 	now    func() time.Time
 	nextID uint64
+	cache  Cache
 }
 
 type Option func(*Service)
@@ -51,6 +52,13 @@ func WithFirstID(id uint64) Option {
 		if id > 0 {
 			s.nextID = id
 		}
+	}
+}
+
+// WithCache makes Resolve look in c first and fill it after a store hit.
+func WithCache(c Cache) Option {
+	return func(s *Service) {
+		s.cache = c
 	}
 }
 
@@ -163,20 +171,35 @@ func (s *Service) Shorten(ctx context.Context, r ShortenRequest) (Link, error) {
 }
 
 func (s *Service) Resolve(ctx context.Context, code string) (Link, error) {
+	var result Link
+	var isCached bool
+
 	if err := ctx.Err(); err != nil {
 		return Link{}, err
 	}
 
-	l, err := s.store.ByCode(ctx, code)
-	if err != nil {
-		return Link{}, fmt.Errorf("link: resolve: %w", err)
+	if s.cache != nil {
+		result, isCached = s.cache.Get(code)
 	}
 
-	if !l.ExpiresAt.IsZero() && !s.now().Before(l.ExpiresAt) {
+	if !isCached {
+		link, err := s.store.ByCode(ctx, code)
+		if err != nil {
+			return Link{}, fmt.Errorf("link: resolve: %w", err)
+		}
+
+		result = link
+
+		if s.cache != nil {
+			s.cache.Put(code, link)
+		}
+	}
+
+	if !result.ExpiresAt.IsZero() && !s.now().Before(result.ExpiresAt) {
 		return Link{}, ErrExpired
 	}
 
-	return l, nil
+	return result, nil
 }
 
 func (s *Service) List(ctx context.Context, ownerID string, p Page) ([]Link, error) {
@@ -218,6 +241,10 @@ func (s *Service) Delete(ctx context.Context, ownerID string, code string) error
 
 	if err := s.store.Delete(ctx, l.ID); err != nil {
 		return fmt.Errorf("link: delete: %w", err)
+	}
+
+	if s.cache != nil {
+		s.cache.Delete(code)
 	}
 
 	return nil
