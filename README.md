@@ -171,6 +171,43 @@ make tidy
 
 Linting uses [golangci-lint](https://golangci-lint.run) (`brew install golangci-lint`).
 
+## Benchmarks
+
+Run the benchmarks in the library module from the repository root:
+
+```bash
+make bench
+```
+
+`BenchmarkLRUGetHit` cycles through 1,024 cached six-character string keys. Every lookup is a hit and moves its entry to the front of the LRU list. `BenchmarkTrieWithPrefix` builds 10,000 words (`alias-0000` through `alias-9999`) and queries `alias-0`, which matches 1,000 words. Its two cases return the first 10 matches or all matches. Both benchmarks use `b.Loop()` and `b.ReportAllocs()`; data preparation is outside the measured loop.
+
+Recorded on 2026-11-13 with Go 1.27.2, macOS/arm64, and an Apple M2:
+
+```text
+cd pkg && go test -run '^$' -bench . -benchmem ./...
+goos: darwin
+goarch: arm64
+pkg: github.com/al-bo/rd-linkforge/pkg/cache
+cpu: Apple M2
+BenchmarkLRUGetHit-8                       35755564         33.25 ns/op         0 B/op         0 allocs/op
+PASS
+ok      github.com/al-bo/rd-linkforge/pkg/cache       1.482s
+PASS
+ok      github.com/al-bo/rd-linkforge/pkg/shortid     0.242s
+PASS
+ok      github.com/al-bo/rd-linkforge/pkg/topk        0.228s
+goos: darwin
+goarch: arm64
+pkg: github.com/al-bo/rd-linkforge/pkg/trie
+cpu: Apple M2
+BenchmarkTrieWithPrefix/limit_10-8           418609          3291 ns/op       680 B/op        17 allocs/op
+BenchmarkTrieWithPrefix/unlimited-8           3248        354866 ns/op     52864 B/op      1121 allocs/op
+PASS
+ok      github.com/al-bo/rd-linkforge/pkg/trie        2.813s
+```
+
+The LRU hit performs no allocations; limiting the trie result to 10 words reduces this run from 1,121 allocations and about 355 microseconds for 1,000 matches to 17 allocations and about 3.3 microseconds. Timings depend on the machine and run.
+
 ## Validation
 
 Run the full Homework 3 checks:
