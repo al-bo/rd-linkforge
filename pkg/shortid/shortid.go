@@ -27,10 +27,14 @@ func encodeCode(value uint64) string {
 	return string(code[:])
 }
 
+// NewCodeGenerator uses random as its source of random bytes.
+// Applications can pass crypto/rand.Reader; tests can use a deterministic reader.
 func NewCodeGenerator(random io.Reader) *CodeGenerator {
 	return &CodeGenerator{random: random}
 }
 
+// Next consumes three random bytes and returns a six-character base62 code.
+// A read error is wrapped and leaves the counter unchanged.
 func (c *CodeGenerator) Next() (string, error) {
 	var buf [3]byte
 

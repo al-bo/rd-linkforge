@@ -1,3 +1,4 @@
+// Package trie provides a byte-based prefix index for autocomplete.
 package trie
 
 type node struct {
@@ -5,10 +6,13 @@ type node struct {
 	isWord   bool
 }
 
+// Trie stores non-empty words in a byte-based prefix tree.
+// Its zero value is ready to use. It is not safe for concurrent use.
 type Trie struct {
 	root node
 }
 
+// New returns an empty trie.
 func New() *Trie {
 	return &Trie{}
 }
@@ -42,6 +46,7 @@ func (t *Trie) Insert(word string) bool {
 	return true
 }
 
+// Contains reports whether word is stored as a complete word.
 func (t *Trie) Contains(word string) bool {
 	current := &t.root
 
@@ -72,7 +77,7 @@ func (t *Trie) Delete(word string) bool {
 		current = current.children[b]
 	}
 
-	if current.isWord == false {
+	if !current.isWord {
 		return false
 	}
 

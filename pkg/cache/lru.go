@@ -5,8 +5,11 @@ import (
 	"errors"
 )
 
+// ErrInvalidCapacity indicates that the requested capacity is not positive.
 var ErrInvalidCapacity = errors.New("cache: capacity must be positive")
 
+// LRU is a bounded least-recently-used cache. It is not safe for concurrent use.
+// Use NewLRU to initialize an LRU.
 type LRU[K comparable, V any] struct {
 	list   list.List
 	keyMap map[K]*list.Element
@@ -20,6 +23,7 @@ type entry[K comparable, V any] struct {
 
 var _ Cache[string, int] = (*LRU[string, int])(nil)
 
+// NewLRU returns ErrInvalidCapacity when capacity is zero or negative.
 func NewLRU[K comparable, V any](capacity int) (*LRU[K, V], error) {
 	if capacity <= 0 {
 		return &LRU[K, V]{}, ErrInvalidCapacity
@@ -31,6 +35,7 @@ func NewLRU[K comparable, V any](capacity int) (*LRU[K, V], error) {
 	}, nil
 }
 
+// Get marks a hit as most recently used. A miss returns the zero value and false.
 func (c *LRU[K, V]) Get(key K) (V, bool) {
 	var empty V
 	v, ok := c.keyMap[key]
@@ -43,30 +48,35 @@ func (c *LRU[K, V]) Get(key K) (V, bool) {
 	return empty, false
 }
 
+// Put adds or updates key and marks it as most recently used.
+// At capacity, it evicts the least recently used entry before adding a new key.
 func (c *LRU[K, V]) Put(key K, value V) {
-	_, ok := c.keyMap[key]
-
-	if ok {
-		c.Delete(key)
+	if element, ok := c.keyMap[key]; ok {
+		element.Value = entry[K, V]{key: key, value: value}
+		c.list.MoveToFront(element)
+		return
 	}
 
-	element := c.list.PushFront(entry[K, V]{key: key, value: value})
-	c.keyMap[key] = element
-
-	if c.list.Len() > c.size {
+	if c.list.Len() == c.size {
 		oldest := c.list.Back()
 		oldKey := oldest.Value.(entry[K, V]).key
 		c.Delete(oldKey)
 	}
+
+	element := c.list.PushFront(entry[K, V]{key: key, value: value})
+	c.keyMap[key] = element
 }
+
+// Delete removes key if present; a missing key has no effect.
 func (c *LRU[K, V]) Delete(key K) {
 	v, ok := c.keyMap[key]
 	if ok {
 		c.list.Remove(v)
 		delete(c.keyMap, key)
 	}
-
 }
+
+// Len returns the number of stored entries.
 func (c *LRU[K, V]) Len() int {
 	return len(c.keyMap)
 }

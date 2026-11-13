@@ -8,13 +8,18 @@ import (
 	"slices"
 )
 
+// ErrInvalidN indicates that the requested capacity is not positive.
 var ErrInvalidN = errors.New("topk: n must be positive")
 
+// Item is a ranking entry: higher Count ranks first, then smaller Key.
+// Concurrent mutation of an Item requires external synchronization.
 type Item struct {
 	Key   string
 	Count int64
 }
 
+// TopK retains a bounded set of the highest-ranked stream items.
+// It is not safe for concurrent use. Use New to initialize a TopK.
 type TopK struct {
 	n     int
 	items itemHeap
