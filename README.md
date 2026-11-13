@@ -6,7 +6,7 @@ The design is specified in the project TDD. The repository contains the implemen
 
 ## Current state
 
-Homework 3 builds on the domain service and in-memory store from Homework 2:
+Homework 4 extends the service and CLI from Homeworks 1–3 with reusable data structures and an optional service cache:
 
 - `internal/base62` provides encoding, recursive encoding, padding, and decoding with overflow checks.
 - `link.Service` implements `Shortener`: it creates links with generated codes or custom aliases, resolves links while checking expiry, lists an owner's links with cursor pagination, and checks ownership before deletion.
@@ -16,10 +16,15 @@ Homework 3 builds on the domain service and in-memory store from Homework 2:
 - `internal/config` loads and validates environment variables, joins configuration errors, and redacts credentials in structured logs.
 - `internal/linkio` reads and writes JSON Lines and exports CSV with UTC timestamps and proper quoting.
 - `linkctl` provides `import`, `export`, `config`, and `version` commands. The JSON Lines file preserves links between CLI runs.
+- `cache.LRU[K,V]` combines a map with `container/list` to keep a bounded cache in most-to-least-recently-used order.
+- `trie.Trie` indexes words by byte and returns prefix matches in ascending byte order, with an optional result limit.
+- `topk.TopK` uses `container/heap` to retain the highest counts, breaking ties by the smaller key. Duplicate keys remain separate entries.
+- `shortid.CodeGenerator` combines 19 random bits from an injected reader with a 16-bit counter to produce six-character base62 codes. The service still generates its codes from IDs.
+- `link.WithCache` accepts the consumer-owned `link.Cache` interface. `Resolve` checks context first, uses cache hits without reading the store, fills misses after successful store reads, and checks expiry in both cases. Successful deletion invalidates the cache; `Shorten` and `List` leave it alone. The service also works without a cache.
 
-The Homework 3 regression suite covers text input edge cases, canceled service and store calls, and `WithFirstID(0)`. See [Validation](#validation).
+Tests cover the new data structures, code generation, cache integration, and regressions from Homeworks 1–3. See [Validation](#validation), [Complexity](#complexity), and [Benchmarks](#benchmarks).
 
-The original interfaces and `Noop*` implementations remain in place. The demo uses the concrete service and store. Storage lasts for the current process and is intended for sequential use at this stage.
+The original interfaces and `Noop*` implementations remain in place. The new mutable library types are not safe for concurrent use. The demo uses the concrete service and store; its storage lasts for the current process and is intended for sequential use at this stage.
 
 ## Run the demo
 
@@ -115,16 +120,21 @@ go run -ldflags '-X main.version=1.0.0' ./cmd/linkctl version
 cmd/      linkforge         CLI demo using the service and in-memory store
           linkctl           import, export, config validation, and version
 
-pkg/                        reusable library contracts — a separate Go module
+pkg/                        reusable libraries — a separate Go module
   shortid/  Codec           base62 codec contract (placeholder)        M1
-            Generator       collision-resistant code issuing           M4
-  cache/    Cache[K,V]      bounded cache on the redirect hot path     M4
+            Generator       code generator contract                    M4
+            CodeGenerator   random bits + counter, six base62 chars    M4
+  cache/    Cache[K,V]       cache contract                             M4
+            LRU[K,V]        bounded map + doubly linked list           M4
+  trie/     Trie            byte-based prefix index                    M4
+  topk/     TopK, Item      bounded heap of ranked items               M4
 
 internal/                   application code
   base62/                   base62 codec and recursive encoder         M1 / M2
   link/     Store           link persistence, declared by its consumer M1 / M7
             Shortener       the domain service behind every transport  M2
-            Service         concrete Shortener implementation          M2
+            Service         Shortener with optional WithCache          M2 / M4
+            Cache           lookup cache, declared by its consumer     M4
   store/    Store           in-memory link storage                     M1 / M2
   click/    Ingester        non-blocking submission from the hot path  M5
             Store           append-only raw event persistence          M7
@@ -139,7 +149,7 @@ internal/                   application code
   observability/Metrics     counters and histograms                    M10
 ```
 
-The `pkg/` tree is a second module so that reusable libraries stay free of any dependency on application code; `go.work` ties the two together for local development.
+The `pkg/` tree is a second module so that reusable libraries stay free of any dependency on application code; `go.work` ties the two together for local development. The libraries use only the standard library. `internal/link` imports `pkg/cache` only in tests, where `*cache.LRU[string, link.Link]` satisfies `link.Cache` without an adapter.
 
 ## Design rules
 
@@ -170,6 +180,25 @@ make tidy
 ```
 
 Linting uses [golangci-lint](https://golangci-lint.run) (`brew install golangci-lint`).
+
+## Complexity
+
+Here, `n` is the number of cached entries, `N` is the number of retained heap items, `m` is the inserted word's byte length, `L` is the prefix's byte length, and `k` is the number of returned words. For trie traversal, `v` counts visited nodes below the prefix and `D` is the maximum byte length of a path string constructed during the search. Hashing and comparing cache or heap keys is treated as constant time; longer keys add their hashing or comparison cost.
+
+| Operation | Average / amortized time | Worst-case time |
+|---|---|---|
+| `LRU.Get` | `O(1)` | `O(n)` |
+| `LRU.Put` | `O(1)` | `O(n)` |
+| `Trie.Insert` | `O(m)` | `O(m)` |
+| `Trie.WithPrefix` | `O(L + v·D + k)` | `O(L + v·D + k)` |
+| `TopK.Add` | `O(log N)` | `O(log N)` |
+| `TopK.Result` | `O(N log N)` | `O(N log N)` |
+
+`LRU.Get` uses the map to find a `*list.Element` in average `O(1)` time. Moving that known element to the front of the doubly linked list changes a fixed number of pointers, so the combined operation remains average `O(1)`. The `O(n)` worst-case bounds account for pathological map collisions and, for insertion, map growth; list operations themselves remain `O(1)`.
+
+`Trie.WithPrefix` first follows the `L` prefix bytes, then visits children in byte order until it has `k` results or exhausts the subtree. Each node has 256 child slots, a constant factor, but this implementation also copies the accumulated path string on each descent, costing up to `O(D)` per visited node; collecting the results costs `O(k)` overall. Deleted words leave their paths in the trie, so the search can visit nodes that produce no result, and its cost cannot be expressed using only `L` and `k`.
+
+`TopK.Add` uses a heap push, or a pop followed by a push when replacing the worst retained item. A full heap rejects an item that is not better in `O(1)`; insertion and replacement are bounded by `O(log N)`. `Result` copies the retained items and sorts the copy in `O(N log N)` time, leaving the heap unchanged. Empty and single-item heaps take constant time.
 
 ## Benchmarks
 
@@ -210,17 +239,28 @@ The LRU hit performs no allocations; limiting the trie result to 10 words reduce
 
 ## Validation
 
-Run the full Homework 3 checks:
+Run the Homework 4 checks from the repository root:
 
 ```bash
-go test ./...
-go test -cover ./...
+make check build
 gofmt -l .
-go vet ./...
-golangci-lint run
+go test -cover ./...
+(cd pkg && go test -cover ./...)
+make bench
 ```
 
-Required package coverage:
+`make check build` runs vet, lint, tests with the race detector, and builds in both modules. `gofmt -l .` should produce no output. The root module's `go test ./...` and `make cover` do not include the nested `pkg` module, so its coverage must be checked separately.
+
+Homework 4 requires at least 85% statement coverage in each new or extended library package. Recorded on 2026-11-13 with `cd pkg && go test -cover ./...`:
+
+| Package | Minimum | Measured |
+|---|---:|---:|
+| `pkg/cache` | 85% | 90.3% |
+| `pkg/trie` | 85% | 100.0% |
+| `pkg/topk` | 85% | 100.0% |
+| `pkg/shortid` | 85% | 88.9% |
+
+Coverage requirements from Homework 3 still apply:
 
 | Package | Minimum |
 |---|---:|
@@ -228,7 +268,9 @@ Required package coverage:
 | `internal/linkio` | 80% |
 | `cmd/linkctl` | 70% |
 
-The tests use injected environment lookups, `t.TempDir()` for files, and deterministic cancellation without `time.Sleep`. The three original `hw2_test.go` files remain unchanged.
+The tests use injected environment lookups, `t.TempDir()` for files, fixed readers for random bytes, and deterministic cancellation without `time.Sleep`. Test helpers call `t.Helper()`. The three original `hw2_test.go` files remain unchanged.
+
+Library tests cover LRU eviction and recency, trie insertion/deletion and byte ordering, bounded heap ranking and independent result copies, and the generator's reference codes, read errors, and counter wraparound. Cache integration tests cover hits and misses, expiry, context cancellation, store errors, deletion ordering, operation without a cache, and a real LRU passed to `WithCache`.
 
 Regression tests cover complete and fragmented input reads, empty input, whitespace and comments, CRLF, missing final newlines, and wrapped reader errors. Service and store methods check context before accessing data or validating requests. A canceled `Shorten` does not consume an ID or reach the store, and `WithFirstID(0)` leaves the counter unchanged.
 
@@ -240,7 +282,7 @@ Regression tests cover complete and fragmented input reads, empty input, whitesp
 | M1 | 2–3 | base62 codec, `Link` model, in-memory store |
 | M2 | 4–5 | Methods, interfaces, generics, error values |
 | M3 | 6–7 | Files and `context`, CLI, `slog`, tests |
-| M4 | 8–9 | Own hash table, LRU, trie, top-N heap |
+| M4 | 8–9 | LRU, byte trie, top-N heap, code generator, cache integration, benchmarks |
 | M5 | 10–11 | Ingestion pipeline, worker pool, synchronisation |
 | M6 | 12–13 | TCP resolver, graceful shutdown, Docker |
 | M7 | 14 | PostgreSQL and MongoDB stores |
