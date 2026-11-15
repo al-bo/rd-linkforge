@@ -18,6 +18,13 @@ type ShortenRequest struct {
 	ExpiresAt time.Time
 }
 
+// Cache is the lookup cache Resolve consults before the store.
+type Cache interface {
+	Get(code string) (Link, bool)
+	Put(code string, l Link)
+	Delete(code string)
+}
+
 // Page describes one slice of a cursor-paginated listing.
 type Page struct {
 	Cursor string
