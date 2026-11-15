@@ -34,14 +34,12 @@ func (t *Trie) Insert(word string) bool {
 		}
 
 		current = current.children[b]
-
-		if i == len(word)-1 {
-			if current.isWord {
-				return false
-			}
-			current.isWord = true
-		}
 	}
+
+	if current.isWord {
+		return false
+	}
+	current.isWord = true
 
 	return true
 }
@@ -63,9 +61,10 @@ func (t *Trie) Contains(word string) bool {
 	return current.isWord
 }
 
-// Delete removes word and reports whether it was there.
+// Delete removes word, prunes unused branches, and reports whether it was there.
 func (t *Trie) Delete(word string) bool {
 	current := &t.root
+	parents := make([]*node, 0, len(word))
 
 	for i := 0; i < len(word); i++ {
 		b := word[i]
@@ -74,6 +73,7 @@ func (t *Trie) Delete(word string) bool {
 			return false
 		}
 
+		parents = append(parents, current)
 		current = current.children[b]
 	}
 
@@ -83,7 +83,25 @@ func (t *Trie) Delete(word string) bool {
 
 	current.isWord = false
 
+	for i := len(word) - 1; i >= 0; i-- {
+		if current.isWord || current.hasChildren() {
+			break
+		}
+		parent := parents[i]
+		parent.children[word[i]] = nil
+		current = parent
+	}
+
 	return true
+}
+
+func (n *node) hasChildren() bool {
+	for _, child := range &n.children {
+		if child != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // WithPrefix returns the words that start with prefix (the prefix itself too, if it
@@ -105,12 +123,16 @@ func (t *Trie) WithPrefix(prefix string, limit int) []string {
 
 	if current.isWord {
 		result = append(result, prefix)
+		if limit == 1 {
+			return result
+		}
 	}
 
-	var process func(n *node, str string)
+	buf := []byte(prefix)
+	var process func(n *node)
 
-	process = func(n *node, str string) {
-		for i, child := range n.children {
+	process = func(n *node) {
+		for i, child := range &n.children {
 			if limit > 0 && len(result) >= limit {
 				return
 			}
@@ -119,17 +141,18 @@ func (t *Trie) WithPrefix(prefix string, limit int) []string {
 				continue
 			}
 
-			s := str + string([]byte{byte(i)})
+			buf = append(buf, byte(i))
 
 			if child.isWord {
-				result = append(result, s)
+				result = append(result, string(buf))
 			}
 
-			process(child, s)
+			process(child)
+			buf = buf[:len(buf)-1]
 		}
 	}
 
-	process(current, prefix)
+	process(current)
 
 	return result
 }

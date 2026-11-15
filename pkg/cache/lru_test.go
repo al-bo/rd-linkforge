@@ -12,8 +12,12 @@ import (
 func TestNewLRUInvalidCapacity(t *testing.T) {
 	for _, capacity := range []int{-10, -1, 0} {
 		t.Run(strconv.Itoa(capacity), func(t *testing.T) {
-			if _, err := cache.NewLRU[string, int](capacity); !errors.Is(err, cache.ErrInvalidCapacity) {
+			c, err := cache.NewLRU[string, int](capacity)
+			if !errors.Is(err, cache.ErrInvalidCapacity) {
 				t.Fatalf("NewLRU(%d) error = %v, want ErrInvalidCapacity", capacity, err)
+			}
+			if c != nil {
+				t.Fatalf("NewLRU(%d) returned a non-nil cache on error", capacity)
 			}
 		})
 	}

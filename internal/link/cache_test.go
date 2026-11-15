@@ -122,7 +122,7 @@ func TestWithCacheResolveExpiry(t *testing.T) {
 	}
 }
 
-func TestWithCacheExpiredStoreHitIsCached(t *testing.T) {
+func TestWithCacheExpiredStoreHitIsNotCached(t *testing.T) {
 	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 	want := Link{ID: 1, Code: "abc", ExpiresAt: now}
 	st := newCacheTestStore(t, want)
@@ -130,13 +130,36 @@ func TestWithCacheExpiredStoreHitIsCached(t *testing.T) {
 	svc := NewService(st, WithCache(c), WithClock(func() time.Time { return now }))
 
 	for i := 0; i < 2; i++ {
-		if _, err := svc.Resolve(context.Background(), want.Code); !errors.Is(err, ErrExpired) {
-			t.Fatalf("Resolve() error = %v, want ErrExpired", err)
+		if got, err := svc.Resolve(context.Background(), want.Code); !errors.Is(err, ErrExpired) || got != (Link{}) {
+			t.Fatalf("Resolve() = %+v, %v; want zero Link and ErrExpired", got, err)
 		}
 	}
-	// Expiry is checked after a successful store lookup has filled the cache.
-	if st.reads != 1 || c.puts != 1 || c.items[want.Code] != want {
-		t.Fatalf("store reads=%d, cache puts=%d, cached link=%+v", st.reads, c.puts, c.items[want.Code])
+	if st.reads != 2 || c.gets != 2 || c.puts != 0 || c.deletes != 0 || len(c.items) != 0 {
+		t.Fatalf("store reads=%d; cache gets/puts/deletes=%d/%d/%d, entries=%d", st.reads, c.gets, c.puts, c.deletes, len(c.items))
+	}
+}
+
+func TestWithCacheExpiredStoreHitPreservesLRU(t *testing.T) {
+	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	valid := Link{ID: 1, Code: "valid", ExpiresAt: now.Add(time.Hour)}
+	expired := Link{ID: 2, Code: "expired", ExpiresAt: now.Add(-time.Hour)}
+	st := newCacheTestStore(t, valid, expired)
+	c, err := cache.NewLRU[string, Link](1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(st, WithCache(c), WithClock(func() time.Time { return now }))
+
+	requireCachedResolve(t, svc, valid)
+	if got, err := svc.Resolve(context.Background(), expired.Code); !errors.Is(err, ErrExpired) || got != (Link{}) {
+		t.Fatalf("Resolve(expired) = %+v, %v; want zero Link and ErrExpired", got, err)
+	}
+	if got := c.Keys(); !slices.Equal(got, []string{valid.Code}) {
+		t.Fatalf("cache keys = %v, want only %q", got, valid.Code)
+	}
+	requireCachedResolve(t, svc, valid)
+	if st.reads != 2 {
+		t.Fatalf("store reads=%d, want 2; valid link should remain cached", st.reads)
 	}
 }
 

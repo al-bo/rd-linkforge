@@ -23,10 +23,10 @@ type entry[K comparable, V any] struct {
 
 var _ Cache[string, int] = (*LRU[string, int])(nil)
 
-// NewLRU returns ErrInvalidCapacity when capacity is zero or negative.
+// NewLRU returns nil and ErrInvalidCapacity when capacity is zero or negative.
 func NewLRU[K comparable, V any](capacity int) (*LRU[K, V], error) {
 	if capacity <= 0 {
-		return &LRU[K, V]{}, ErrInvalidCapacity
+		return nil, ErrInvalidCapacity
 	}
 
 	return &LRU[K, V]{

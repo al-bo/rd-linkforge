@@ -20,7 +20,7 @@ Homework 4 extends the service and CLI from Homeworks 1–3 with reusable data s
 - `trie.Trie` indexes words by byte and returns prefix matches in ascending byte order, with an optional result limit.
 - `topk.TopK` uses `container/heap` to retain the highest counts, breaking ties by the smaller key. Duplicate keys remain separate entries.
 - `shortid.CodeGenerator` combines 19 random bits from an injected reader with a 16-bit counter to produce six-character base62 codes. The service still generates its codes from IDs.
-- `link.WithCache` accepts the consumer-owned `link.Cache` interface. `Resolve` checks context first, uses cache hits without reading the store, fills misses after successful store reads, and checks expiry in both cases. Successful deletion invalidates the cache; `Shorten` and `List` leave it alone. The service also works without a cache.
+- `link.WithCache` accepts the consumer-owned `link.Cache` interface. `Resolve` checks context first, uses cache hits without reading the store, and checks expiry in both cases. Cache misses are filled only after a successful, unexpired store result, so expired links cannot evict valid cached entries. Successful deletion invalidates the cache; `Shorten` and `List` leave it alone. The service also works without a cache.
 
 Tests cover the new data structures, code generation, cache integration, and regressions from Homeworks 1–3. See [Validation](#validation), [Complexity](#complexity), and [Benchmarks](#benchmarks).
 
@@ -183,20 +183,23 @@ Linting uses [golangci-lint](https://golangci-lint.run) (`brew install golangci-
 
 ## Complexity
 
-Here, `n` is the number of cached entries, `N` is the number of retained heap items, `m` is the inserted word's byte length, `L` is the prefix's byte length, and `k` is the number of returned words. For trie traversal, `v` counts visited nodes below the prefix and `D` is the maximum byte length of a path string constructed during the search. Hashing and comparing cache or heap keys is treated as constant time; longer keys add their hashing or comparison cost.
+Here, `n` is the number of cached entries, `N` is the number of retained heap items, `m` is the inserted or deleted word's byte length, `L` is the prefix's byte length, and `k` is the number of returned words. For trie traversal, `v` counts visited nodes below the prefix and `D` is the maximum byte length of a returned word. Hashing and comparing cache or heap keys is treated as constant time; longer keys add their hashing or comparison cost.
 
 | Operation | Average / amortized time | Worst-case time |
 |---|---|---|
 | `LRU.Get` | `O(1)` | `O(n)` |
 | `LRU.Put` | `O(1)` | `O(n)` |
 | `Trie.Insert` | `O(m)` | `O(m)` |
-| `Trie.WithPrefix` | `O(L + v·D + k)` | `O(L + v·D + k)` |
+| `Trie.Delete` | `O(m)` | `O(m)` |
+| `Trie.WithPrefix` | `O(L + v + k·D)` | `O(L + v + k·D)` |
 | `TopK.Add` | `O(log N)` | `O(log N)` |
 | `TopK.Result` | `O(N log N)` | `O(N log N)` |
 
 `LRU.Get` uses the map to find a `*list.Element` in average `O(1)` time. Moving that known element to the front of the doubly linked list changes a fixed number of pointers, so the combined operation remains average `O(1)`. The `O(n)` worst-case bounds account for pathological map collisions and, for insertion, map growth; list operations themselves remain `O(1)`.
 
-`Trie.WithPrefix` first follows the `L` prefix bytes, then visits children in byte order until it has `k` results or exhausts the subtree. Each node has 256 child slots, a constant factor, but this implementation also copies the accumulated path string on each descent, costing up to `O(D)` per visited node; collecting the results costs `O(k)` overall. Deleted words leave their paths in the trie, so the search can visit nodes that produce no result, and its cost cannot be expressed using only `L` and `k`.
+`Trie.WithPrefix` first follows the `L` prefix bytes, then visits children in byte order until it has `k` results or exhausts the subtree. The traversal appends to and trims one shared byte buffer, with amortized constant work per edge; each node's 256 child slots are a constant factor. Only complete results are copied into strings, costing at most `O(k·D)` bytes overall. If the prefix itself fills the limit, the method returns before starting the traversal.
+
+`Trie.Delete` records the path in `O(m)` temporary space and removes empty nodes from the leaf upwards, stopping at a stored word or a node with surviving children. Checking 256 child slots per node is a constant factor, so deletion takes `O(m)` time. Pruning releases unused branches for garbage collection and keeps later prefix searches from traversing deleted subtrees.
 
 `TopK.Add` uses a heap push, or a pop followed by a push when replacing the worst retained item. A full heap rejects an item that is not better in `O(1)`; insertion and replacement are bounded by `O(log N)`. `Result` copies the retained items and sorts the copy in `O(N log N)` time, leaving the heap unchanged. Empty and single-item heaps take constant time.
 
@@ -210,7 +213,7 @@ make bench
 
 `BenchmarkLRUGetHit` cycles through 1,024 cached six-character string keys. Every lookup is a hit and moves its entry to the front of the LRU list. `BenchmarkTrieWithPrefix` builds 10,000 words (`alias-0000` through `alias-9999`) and queries `alias-0`, which matches 1,000 words. Its two cases return the first 10 matches or all matches. Both benchmarks use `b.Loop()` and `b.ReportAllocs()`; data preparation is outside the measured loop.
 
-Recorded on 2026-11-13 with Go 1.27.2, macOS/arm64, and an Apple M2:
+Recorded on 2026-11-15 with Go 1.27.2, macOS/arm64, and an Apple M2:
 
 ```text
 cd pkg && go test -run '^$' -bench . -benchmem ./...
@@ -218,24 +221,24 @@ goos: darwin
 goarch: arm64
 pkg: github.com/al-bo/rd-linkforge/pkg/cache
 cpu: Apple M2
-BenchmarkLRUGetHit-8                       35755564         33.25 ns/op         0 B/op         0 allocs/op
+BenchmarkLRUGetHit-8                       68030419         17.58 ns/op         0 B/op         0 allocs/op
 PASS
-ok      github.com/al-bo/rd-linkforge/pkg/cache       1.482s
+ok      github.com/al-bo/rd-linkforge/pkg/cache       1.459s
 PASS
-ok      github.com/al-bo/rd-linkforge/pkg/shortid     0.242s
+ok      github.com/al-bo/rd-linkforge/pkg/shortid     0.274s
 PASS
-ok      github.com/al-bo/rd-linkforge/pkg/topk        0.228s
+ok      github.com/al-bo/rd-linkforge/pkg/topk        0.284s
 goos: darwin
 goarch: arm64
 pkg: github.com/al-bo/rd-linkforge/pkg/trie
 cpu: Apple M2
-BenchmarkTrieWithPrefix/limit_10-8           418609          3291 ns/op       680 B/op        17 allocs/op
-BenchmarkTrieWithPrefix/unlimited-8           3248        354866 ns/op     52864 B/op      1121 allocs/op
+BenchmarkTrieWithPrefix/limit_10-8           603356          2548 ns/op       656 B/op        15 allocs/op
+BenchmarkTrieWithPrefix/unlimited-8           4353        262839 ns/op     51184 B/op      1011 allocs/op
 PASS
-ok      github.com/al-bo/rd-linkforge/pkg/trie        2.813s
+ok      github.com/al-bo/rd-linkforge/pkg/trie        3.213s
 ```
 
-The LRU hit performs no allocations; limiting the trie result to 10 words reduces this run from 1,121 allocations and about 355 microseconds for 1,000 matches to 17 allocations and about 3.3 microseconds. Timings depend on the machine and run.
+The LRU hit performs no allocations. With a shared traversal buffer, the trie now uses 1,011 allocations for 1,000 matches, down from 1,121 in the previous implementation; limiting the result to 10 words uses 15 allocations. This run took about 263 microseconds for all matches and 2.5 microseconds for 10 matches. Timings depend on the machine and run.
 
 ## Validation
 
@@ -251,7 +254,7 @@ make bench
 
 `make check build` runs vet, lint, tests with the race detector, and builds in both modules. `gofmt -l .` should produce no output. The root module's `go test ./...` and `make cover` do not include the nested `pkg` module, so its coverage must be checked separately.
 
-Homework 4 requires at least 85% statement coverage in each new or extended library package. Recorded on 2026-11-13 with `cd pkg && go test -cover ./...`:
+Homework 4 requires at least 85% statement coverage in each new or extended library package. Recorded on 2026-11-15 with `cd pkg && go test -cover ./...`:
 
 | Package | Minimum | Measured |
 |---|---:|---:|
@@ -270,7 +273,7 @@ Coverage requirements from Homework 3 still apply:
 
 The tests use injected environment lookups, `t.TempDir()` for files, fixed readers for random bytes, and deterministic cancellation without `time.Sleep`. Test helpers call `t.Helper()`. The three original `hw2_test.go` files remain unchanged.
 
-Library tests cover LRU eviction and recency, trie insertion/deletion and byte ordering, bounded heap ranking and independent result copies, and the generator's reference codes, read errors, and counter wraparound. Cache integration tests cover hits and misses, expiry, context cancellation, store errors, deletion ordering, operation without a cache, and a real LRU passed to `WithCache`.
+Library tests cover LRU eviction and recency, a nil cache returned for invalid capacity, trie insertion/deletion, branch pruning and byte ordering, bounded heap ranking and independent result copies, and the generator's reference codes, read errors, and counter wraparound. Cache integration tests cover hits and misses, expiry, context cancellation, store errors, deletion ordering, operation without a cache, and a real LRU passed to `WithCache`. Expired store results are checked to leave the cache unchanged and preserve valid LRU entries.
 
 Regression tests cover complete and fragmented input reads, empty input, whitespace and comments, CRLF, missing final newlines, and wrapped reader errors. Service and store methods check context before accessing data or validating requests. A canceled `Shorten` does not consume an ID or reach the store, and `WithFirstID(0)` leaves the counter unchanged.
 

@@ -55,7 +55,7 @@ func WithFirstID(id uint64) Option {
 	}
 }
 
-// WithCache makes Resolve look in c first and fill it after a store hit.
+// WithCache makes Resolve look in c first and fill it after an unexpired store hit.
 func WithCache(c Cache) Option {
 	return func(s *Service) {
 		s.cache = c
@@ -189,14 +189,14 @@ func (s *Service) Resolve(ctx context.Context, code string) (Link, error) {
 		}
 
 		result = link
-
-		if s.cache != nil {
-			s.cache.Put(code, link)
-		}
 	}
 
 	if !result.ExpiresAt.IsZero() && !s.now().Before(result.ExpiresAt) {
 		return Link{}, ErrExpired
+	}
+
+	if !isCached && s.cache != nil {
+		s.cache.Put(code, result)
 	}
 
 	return result, nil
