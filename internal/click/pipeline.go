@@ -18,7 +18,7 @@ type BatchSink interface {
 	Add(batch []Click)
 }
 
-type Pipeline struct { /* your fields */
+type Pipeline struct {
 	queueSize     int
 	workers       int
 	batchSize     int
@@ -31,6 +31,9 @@ type Pipeline struct { /* your fields */
 	started       bool
 	closed        bool
 	wg            sync.WaitGroup
+	ctx           context.Context
+	cancel        context.CancelFunc
+	done          chan struct{}
 }
 
 type PipelineOption func(*Pipeline)
@@ -94,6 +97,8 @@ func NewPipeline(store Store, opts ...PipelineOption) *Pipeline {
 	}
 
 	pipeline.queue = make(chan Click, pipeline.queueSize)
+	pipeline.ctx, pipeline.cancel = context.WithCancel(context.Background())
+	pipeline.done = make(chan struct{})
 
 	return pipeline
 }
@@ -118,7 +123,112 @@ func (p *Pipeline) Start() {
 
 }
 func (p *Pipeline) Submit(c Click) bool {
-	p.queue <- c
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if p.closed {
+		if p.metrics != nil {
+			p.metrics.ObserveClickDropped()
+		}
+		return false
+	}
+
+	select {
+	case p.queue <- c:
+		if p.metrics != nil {
+			p.metrics.SetQueueDepth(len(p.queue))
+		}
+		return true
+
+	default:
+		if p.metrics != nil {
+			p.metrics.ObserveClickDropped()
+		}
+		return false
+	}
 }
 
-func (p *Pipeline) Shutdown(ctx context.Context) error
+func (p *Pipeline) runWorker() {
+	batch := make([]Click, 0, p.batchSize)
+	ticker := time.NewTicker(p.flushInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case c, ok := <-p.queue:
+			if !ok {
+				p.flush(batch)
+				return
+			}
+
+			batch = append(batch, c)
+
+			if len(batch) >= p.batchSize {
+				p.flush(batch)
+				batch = make([]Click, 0, p.batchSize)
+			}
+
+		case <-ticker.C:
+			if len(batch) > 0 {
+				p.flush(batch)
+				batch = make([]Click, 0, p.batchSize)
+			}
+		}
+	}
+}
+
+func (p *Pipeline) flush(batch []Click) {
+	if len(batch) == 0 {
+		return
+	}
+
+	if err := p.store.Append(p.ctx, batch); err != nil {
+		if p.metrics != nil {
+			for range batch {
+				p.metrics.ObserveClickDropped()
+			}
+		}
+		return
+	}
+
+	if p.sink != nil {
+		p.sink.Add(batch)
+	}
+}
+
+func (p *Pipeline) Shutdown(ctx context.Context) error {
+	p.mu.Lock()
+
+	if !p.closed {
+		p.closed = true
+		close(p.queue)
+
+		if !p.started {
+			p.cancel()
+			close(p.done)
+		} else {
+			go func() {
+				p.wg.Wait()
+				p.cancel()
+				close(p.done)
+			}()
+		}
+	}
+
+	p.mu.Unlock()
+
+	select {
+	case <-p.done:
+		return nil
+	default:
+	}
+
+	select {
+	case <-p.done:
+		return nil
+
+	case <-ctx.Done():
+		p.cancel()
+		return ctx.Err()
+	}
+}
