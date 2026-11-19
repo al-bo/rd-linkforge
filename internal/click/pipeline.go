@@ -9,15 +9,21 @@ import (
 
 var _ Ingester = (*Pipeline)(nil)
 
+// Metrics records dropped clicks and queue depth.
+// Implementations must be safe for concurrent use.
 type Metrics interface {
 	ObserveClickDropped()
 	SetQueueDepth(n int)
 }
 
+// BatchSink receives successfully stored batches from pipeline workers.
+// Implementations must be safe for concurrent use.
 type BatchSink interface {
 	Add(batch []Click)
 }
 
+// Pipeline ingests clicks in batches and is safe for concurrent use.
+// Its Store, Metrics, and BatchSink implementations must support concurrent calls.
 type Pipeline struct {
 	queueSize     int
 	workers       int
@@ -36,6 +42,8 @@ type Pipeline struct {
 	done          chan struct{}
 }
 
+// PipelineOption configures a Pipeline before it is used.
+// Applying an option concurrently with operations on the same Pipeline is not safe.
 type PipelineOption func(*Pipeline)
 
 func WithQueueSize(n int) PipelineOption {
