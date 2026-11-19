@@ -3,14 +3,16 @@ package cache
 import (
 	"container/list"
 	"errors"
+	"sync"
 )
 
 // ErrInvalidCapacity indicates that the requested capacity is not positive.
 var ErrInvalidCapacity = errors.New("cache: capacity must be positive")
 
-// LRU is a bounded least-recently-used cache. It is not safe for concurrent use.
-// Use NewLRU to initialize an LRU.
+// LRU is a bounded least-recently-used cache. It is safe for concurrent use.
+// Use NewLRU to initialize an LRU. An LRU must not be copied after first use.
 type LRU[K comparable, V any] struct {
+	mu     sync.Mutex
 	list   list.List
 	keyMap map[K]*list.Element
 	size   int
@@ -37,6 +39,9 @@ func NewLRU[K comparable, V any](capacity int) (*LRU[K, V], error) {
 
 // Get marks a hit as most recently used. A miss returns the zero value and false.
 func (c *LRU[K, V]) Get(key K) (V, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	var empty V
 	v, ok := c.keyMap[key]
 
@@ -51,6 +56,9 @@ func (c *LRU[K, V]) Get(key K) (V, bool) {
 // Put adds or updates key and marks it as most recently used.
 // At capacity, it evicts the least recently used entry before adding a new key.
 func (c *LRU[K, V]) Put(key K, value V) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if element, ok := c.keyMap[key]; ok {
 		element.Value = entry[K, V]{key: key, value: value}
 		c.list.MoveToFront(element)
@@ -60,7 +68,8 @@ func (c *LRU[K, V]) Put(key K, value V) {
 	if c.list.Len() == c.size {
 		oldest := c.list.Back()
 		oldKey := oldest.Value.(entry[K, V]).key
-		c.Delete(oldKey)
+		c.list.Remove(oldest)
+		delete(c.keyMap, oldKey)
 	}
 
 	element := c.list.PushFront(entry[K, V]{key: key, value: value})
@@ -69,6 +78,9 @@ func (c *LRU[K, V]) Put(key K, value V) {
 
 // Delete removes key if present; a missing key has no effect.
 func (c *LRU[K, V]) Delete(key K) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	v, ok := c.keyMap[key]
 	if ok {
 		c.list.Remove(v)
@@ -78,11 +90,17 @@ func (c *LRU[K, V]) Delete(key K) {
 
 // Len returns the number of stored entries.
 func (c *LRU[K, V]) Len() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	return len(c.keyMap)
 }
 
 // Keys returns keys from most to least recently used without changing their order.
 func (c *LRU[K, V]) Keys() []K {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	keys := make([]K, 0, c.list.Len())
 	for element := c.list.Front(); element != nil; element = element.Next() {
 		keys = append(keys, element.Value.(entry[K, V]).key)
