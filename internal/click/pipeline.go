@@ -123,29 +123,28 @@ func (p *Pipeline) Start() {
 
 }
 func (p *Pipeline) Submit(c Click) bool {
+	accepted := false
+	depth := 0
+
 	p.mu.RLock()
-	defer p.mu.RUnlock()
+	if !p.closed {
+		select {
+		case p.queue <- c:
+			accepted = true
+			depth = len(p.queue)
+		default:
+		}
+	}
+	p.mu.RUnlock()
 
-	if p.closed {
-		if p.metrics != nil {
+	if p.metrics != nil {
+		if accepted {
+			p.metrics.SetQueueDepth(depth)
+		} else {
 			p.metrics.ObserveClickDropped()
 		}
-		return false
 	}
-
-	select {
-	case p.queue <- c:
-		if p.metrics != nil {
-			p.metrics.SetQueueDepth(len(p.queue))
-		}
-		return true
-
-	default:
-		if p.metrics != nil {
-			p.metrics.ObserveClickDropped()
-		}
-		return false
-	}
+	return accepted
 }
 
 func (p *Pipeline) runWorker() {
