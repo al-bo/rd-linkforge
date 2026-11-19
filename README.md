@@ -6,7 +6,7 @@ The design is specified in the project TDD. The repository contains the implemen
 
 ## Current state
 
-Homework 4 extends the service and CLI from Homeworks 1–3 with reusable data structures and an optional service cache:
+Homework 5 adds a concurrent click pipeline and counters to the service, CLI, and data structures from Homeworks 1–4:
 
 - `internal/base62` provides encoding, recursive encoding, padding, and decoding with overflow checks.
 - `link.Service` implements `Shortener`: it creates links with generated codes or custom aliases, resolves links while checking expiry, lists an owner's links with cursor pagination, and checks ownership before deletion.
@@ -24,7 +24,18 @@ Homework 4 extends the service and CLI from Homeworks 1–3 with reusable data s
 
 Tests cover the new data structures, code generation, cache integration, and regressions from Homeworks 1–3. See [Validation](#validation), [Complexity](#complexity), and [Benchmarks](#benchmarks).
 
-The original interfaces and `Noop*` implementations remain in place. The new mutable library types are not safe for concurrent use. The demo uses the concrete service and store; its storage lasts for the current process and is intended for sequential use at this stage.
+The original interfaces and `Noop*` implementations remain in place. `Pipeline`, `Counters`, and `LRU` are safe for concurrent use; the other mutable types retain their documented concurrency restrictions. The demo uses the concrete service and store; its storage lasts for the current process and is intended for sequential use at this stage.
+
+## Concurrency
+
+- `Counters` starts one owner goroutine; only that goroutine accesses the map of hourly click counts.
+- `Add`, `Series`, and `Top` send requests through a channel; queries receive results through buffered reply channels.
+- `Pipeline` uses an `RWMutex` to protect its started/closed state and queue closure.
+- `Submit` holds an `RLock` while checking the state and attempting to send, allowing concurrent submissions while preventing queue closure; metrics are reported after unlocking.
+- Only `Shutdown` closes the queue: it stops new submissions, then waits for workers to drain the queue and flush their final batches.
+- If its context expires, `Shutdown` cancels the pipeline's write context; repeated calls wait for the same worker completion.
+- Close `Counters` after the pipeline finishes; `Close` signals the owner goroutine and waits for it to exit.
+- `LRU` protects its map and list with one `sync.Mutex` in every method, including `Get`, `Len`, and `Keys`.
 
 ## Run the demo
 
