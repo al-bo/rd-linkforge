@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"YOUR_MODULE/internal/link"
+	"github.com/al-bo/rd-linkforge/internal/link"
 )
 
 // hw6Resolver answers from a map. A code in the "block" set waits until
