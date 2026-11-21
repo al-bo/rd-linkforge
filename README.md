@@ -37,29 +37,6 @@ The original interfaces and `Noop*` implementations remain in place. `Pipeline`,
 - Close `Counters` after the pipeline finishes; `Close` signals the owner goroutine and waits for it to exit.
 - `LRU` protects its map and list with one `sync.Mutex` in every method, including `Get`, `Len`, and `Keys`.
 
-## Run the demo
-
-Requires Go 1.25 or newer. From the repository root:
-
-```bash
-go run ./cmd/linkforge https://example.com ftp://nope https://go.dev
-```
-
-Standard output:
-
-```text
-000001    https://example.com
-000002    https://go.dev
-Total: 2
-```
-
-The invalid address is reported through structured logging to standard error. The log includes a timestamp and these fields:
-
-```text
-level=ERROR msg="shorten failed" argument=2 error="link: error unsupported scheme"
-```
-
-The command creates links for owner `demo`, continues after invalid input, and prints the stored links using `All` and `Count`. An invalid request does not consume an ID.
 
 ## Environment configuration
 
@@ -128,7 +105,7 @@ go run -ldflags '-X main.version=1.0.0' ./cmd/linkctl version
 ## Layout
 
 ```
-cmd/      linkforge         CLI demo using the service and in-memory store
+cmd/
           linkctl           import, export, config validation, and version
 
 pkg/                        reusable libraries — a separate Go module
