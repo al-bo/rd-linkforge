@@ -1,12 +1,14 @@
 package tcp
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,8 +20,14 @@ var _ transport.Server = (*Server)(nil)
 
 var ErrStarted = errors.New("tcp: server was already started")
 
+const errBadRequest = "ERR bad_request\n"
+const errRequestLong = "ERR line_too_long\n"
+const errNotFound = "ERR not_found\n"
+const errInternal = "ERR internal\n"
+
 const defaultIdleTimeout = 60 * time.Second
 const keepAlivePeriod = 30 * time.Second
+const maxLineSize = 4096
 
 // Resolver is what the server needs from the application.
 // *link.Service satisfies it without an adapter.
@@ -149,6 +157,71 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		delete(s.conns, conn)
 		s.mu.Unlock()
 	}()
+
+	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, maxLineSize), maxLineSize)
+
+	for {
+		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			return
+		}
+
+		err := conn.SetReadDeadline(time.Now().Add(s.idleTimeout))
+		s.mu.Unlock()
+
+		if err != nil {
+			s.logger.Error("tcp: set read deadline failed", "error", err)
+			return
+		}
+
+		if !scanner.Scan() {
+			break
+		}
+
+		fields := strings.Fields(scanner.Text())
+		response := errBadRequest
+
+		switch {
+		case len(fields) == 1 && fields[0] == "PING":
+			response = "PONG\n"
+		case len(fields) == 1 && fields[0] == "QUIT":
+			return
+		case len(fields) == 2 && fields[0] == "RESOLVE":
+			resolved, err := s.resolver.Resolve(ctx, fields[1])
+
+			if err == nil {
+				response = "OK " + resolved.Target + "\n"
+			} else if errors.Is(err, link.ErrNotFound) || errors.Is(err, link.ErrExpired) {
+				response = errNotFound
+			} else {
+				response = errInternal
+				s.logger.Error("resolver: resolve failed", "error", err)
+			}
+		}
+
+		if _, err := io.WriteString(conn, response); err != nil {
+			s.logger.Error("tcp: write response failed", "error", err)
+			return
+		}
+	}
+
+	var netErr net.Error
+	err := scanner.Err()
+
+	if err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			if _, err := io.WriteString(conn, errRequestLong); err != nil {
+				s.logger.Error("tcp: write response failed", "error", err)
+				return
+			}
+		} else if errors.As(err, &netErr) && netErr.Timeout() {
+			return
+		} else {
+			s.logger.Error("tcp: read failed", "error", err)
+		}
+	}
 }
 
 func (s *Server) Addr() string {
