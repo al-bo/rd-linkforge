@@ -31,10 +31,13 @@ const maxLineSize = 4096
 
 // Resolver is what the server needs from the application.
 // *link.Service satisfies it without an adapter.
+// Implementations must support concurrent calls to Resolve.
 type Resolver interface {
 	Resolve(ctx context.Context, code string) (link.Link, error)
 }
 
+// Option configures a Server during construction. Options must not be applied
+// concurrently to the same Server or after it has started.
 type Option func(*Server)
 
 // WithIdleTimeout sets how long a connection may stay silent. Default 60 seconds.
@@ -57,6 +60,8 @@ func WithLogger(l *slog.Logger) Option {
 	}
 }
 
+// Server resolves link codes over TCP. Its methods are safe for concurrent use.
+// Use NewServer to initialize it. A Server must not be copied after first use.
 type Server struct {
 	logger      *slog.Logger
 	addr        string
@@ -69,6 +74,7 @@ type Server struct {
 	wg          sync.WaitGroup
 	conns       map[net.Conn]struct{}
 	cancel      context.CancelFunc
+	done        chan struct{}
 }
 
 func NewServer(addr string, r Resolver, opts ...Option) *Server {
@@ -78,6 +84,7 @@ func NewServer(addr string, r Resolver, opts ...Option) *Server {
 		resolver:    r,
 		logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 		conns:       make(map[net.Conn]struct{}),
+		done:        make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -236,5 +243,46 @@ func (s *Server) Addr() string {
 	return s.addr
 }
 func (s *Server) Shutdown(ctx context.Context) error {
-	return nil
+	s.mu.Lock()
+	if s.listener == nil {
+		s.closed = true
+		s.mu.Unlock()
+
+		return nil
+	}
+
+	if !s.closed {
+		s.closed = true
+		if err := s.listener.Close(); err != nil {
+			s.logger.Error("tcp: listener close", "error", err)
+		}
+
+		for conn := range s.conns {
+			err := conn.SetReadDeadline(time.Now())
+			if err != nil {
+				s.logger.Error("tcp: connection set read deadline error", "error", err)
+			}
+		}
+
+		go func() {
+			s.wg.Wait()
+			close(s.done)
+		}()
+	}
+
+	s.mu.Unlock()
+
+	select {
+	case <-s.done:
+		s.cancel()
+		return nil
+	case <-ctx.Done():
+		s.mu.Lock()
+		for conn := range s.conns {
+			_ = conn.Close()
+		}
+		s.mu.Unlock()
+		s.cancel()
+		return ctx.Err()
+	}
 }
