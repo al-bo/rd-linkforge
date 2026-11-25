@@ -2,36 +2,37 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
-	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/al-bo/rd-linkforge/internal/config"
 	"github.com/al-bo/rd-linkforge/internal/link"
 	"github.com/al-bo/rd-linkforge/internal/linkio"
 	"github.com/al-bo/rd-linkforge/internal/store"
+	"github.com/al-bo/rd-linkforge/internal/transport"
+	"github.com/al-bo/rd-linkforge/internal/transport/tcp"
 	"github.com/al-bo/rd-linkforge/pkg/cache"
 )
 
-var version = "dev"
-
 type EnvLoader = func(string) (string, bool)
+
+const shutdownTimeout = 15 * time.Second
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	code := run(ctx, os.Args[1:], os.LookupEnv, os.Stdout, os.Stderr)
+	code := run(ctx, os.Args[1:], os.LookupEnv, os.Stderr)
 	stop()
 	os.Exit(code)
 }
 
-func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Writer) int {
+func run(ctx context.Context, args []string, env EnvLoader, stderr io.Writer) int {
 	if env == nil {
 		env = os.LookupEnv
 	}
@@ -50,11 +51,11 @@ func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Wr
 	logger := slog.New(h)
 
 	//
-	flags := flag.NewFlagSet("import", flag.ContinueOnError)
+	flags := flag.NewFlagSet("linkforged", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	dbPath := flags.String("db", "", "Path to database (required)")
 	flags.Usage = func() {
-		fmt.Fprintf(stderr, "Usage: linkctl import -in FILE -db FILE\n\n flags:\n")
+		fmt.Fprintf(stderr, "Usage: linkforged -db FILE\n\n")
 		flags.PrintDefaults()
 	}
 
@@ -67,34 +68,31 @@ func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Wr
 		return 2
 	}
 	if flags.NArg() != 0 {
-		logger.ErrorContext(ctx, "import does not accept positional arguments")
+		logger.ErrorContext(ctx, "linkforged does not accept positional arguments")
+		flags.Usage()
 		return 2
 	}
-
-	if len(args) == 0 {
-		logger.ErrorContext(ctx, "command is required")
-		return 2
-	}
-
-	db, err := linkio.LoadFile(*dbPath)
-
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		logger.ErrorContext(ctx, "load database failed", slog.Any("error", err))
-		return 1
-	}
-	logger.DebugContext(ctx, "database loaded", slog.Int("count", len(db)))
 
 	cfg, err := config.NewEnvLoader(env).Load(ctx)
 	if err != nil {
 		fmt.Fprintf(stderr, "invalid configuration:\n%v\n", err)
 		return 1
 	}
+
+	db, err := linkio.LoadFile(*dbPath)
+
+	if err != nil {
+		logger.ErrorContext(ctx, "load database:", slog.Any("error", err))
+		return 1
+	}
+
+	logger.DebugContext(ctx, "database loaded", slog.Int("count", len(db)))
 	logger.InfoContext(ctx, "configuration loaded", slog.Any("config", cfg))
 
 	st := store.New()
 	for _, stored := range db {
 		if _, err := st.Create(ctx, stored); err != nil {
-			logger.ErrorContext(ctx, "load database:", slog.Uint64("id", stored.ID), slog.Any("error", err))
+			logger.ErrorContext(ctx, "restore link:", slog.Uint64("id", stored.ID), slog.String("code", stored.Code), slog.Any("error", err))
 			return 1
 		}
 	}
@@ -103,9 +101,43 @@ func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Wr
 
 	if err != nil {
 		logger.ErrorContext(ctx, "cache failed:", slog.Any("error", err))
+		return 1
 	}
 
 	service := link.NewService(st, link.WithCache(lru))
+	var srv transport.Server = tcp.NewServer(
+		cfg.TCPAddr,
+		service,
+		tcp.WithLogger(logger),
+	)
 
+	startErr := srv.Start(ctx)
+
+	if startErr != nil {
+		logger.ErrorContext(ctx, "start resolver:", slog.Any("error", startErr))
+		return 1
+	}
+
+	logger.Info("resolver started",
+		"addr", srv.Addr(),
+		"links", len(db),
+	)
+
+	<-ctx.Done()
+
+	shutdownCtx, cancel := context.WithTimeout(
+		context.Background(),
+		shutdownTimeout,
+	)
+	defer cancel()
+	shutDownErr := srv.Shutdown(shutdownCtx)
+
+	if shutDownErr != nil {
+		logger.ErrorContext(shutdownCtx, "stop resolver:", slog.Any("error", shutDownErr))
+
+		return 1
+	}
+
+	logger.Info("resolver stopped")
 	return 0
 }
