@@ -57,7 +57,9 @@ func run(ctx context.Context, args []string, env EnvLoader, stderr io.Writer) in
 	flags.SetOutput(stderr)
 	dbPath := flags.String("db", "", "Path to database (required)")
 	flags.Usage = func() {
-		fmt.Fprintf(stderr, "Usage: linkforged -db FILE\n\n")
+		if _, err := fmt.Fprintf(stderr, "Usage: linkforged -db FILE\n\n"); err != nil {
+			logger.ErrorContext(ctx, "write usage failed", slog.Any("error", err))
+		}
 		flags.PrintDefaults()
 	}
 
@@ -77,7 +79,9 @@ func run(ctx context.Context, args []string, env EnvLoader, stderr io.Writer) in
 
 	cfg, err := config.NewEnvLoader(env).Load(ctx)
 	if err != nil {
-		fmt.Fprintf(stderr, "invalid configuration:\n%v\n", err)
+		if _, writeErr := fmt.Fprintf(stderr, "invalid configuration:\n%v\n", err); writeErr != nil {
+			logger.ErrorContext(ctx, "write configuration error failed", slog.Any("error", writeErr))
+		}
 		return 1
 	}
 
