@@ -1,3 +1,4 @@
+// Package store provides in-memory link storage.
 package store
 
 import (
@@ -11,6 +12,9 @@ import (
 var ErrDuplicateID = errors.New("store: error duplicate id")
 var _ link.Store = (*Store)(nil)
 
+// Store indexes links by ID and code. Create and Delete are not safe for
+// concurrent use. ByCode and the other read methods may run concurrently only
+// when no caller uses Create or Delete. Do not copy a Store after first use.
 type Store struct {
 	byID   map[uint64]link.Link
 	byCode map[string]link.Link

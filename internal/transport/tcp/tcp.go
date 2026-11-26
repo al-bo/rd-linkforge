@@ -1,3 +1,4 @@
+// Package tcp serves the line-based link resolver protocol over TCP.
 package tcp
 
 import (
@@ -175,6 +176,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 			return
 		}
 
+		// Share Shutdown's lock so an idle deadline cannot overwrite its wakeup.
 		err := conn.SetReadDeadline(time.Now().Add(s.idleTimeout))
 		s.mu.Unlock()
 

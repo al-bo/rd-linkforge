@@ -1,3 +1,4 @@
+// Command linkforged serves a JSON Lines link database over TCP.
 package main
 
 import (
@@ -21,6 +22,8 @@ import (
 	"github.com/al-bo/rd-linkforge/pkg/cache"
 )
 
+// EnvLoader reads configuration values. Each run calls it synchronously;
+// callers sharing it across runs must provide a concurrency-safe function.
 type EnvLoader = func(string) (string, bool)
 
 const shutdownTimeout = 15 * time.Second
@@ -50,7 +53,6 @@ func run(ctx context.Context, args []string, env EnvLoader, stderr io.Writer) in
 	h := slog.NewJSONHandler(stderr, &slog.HandlerOptions{Level: level})
 	logger := slog.New(h)
 
-	//
 	flags := flag.NewFlagSet("linkforged", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	dbPath := flags.String("db", "", "Path to database (required)")

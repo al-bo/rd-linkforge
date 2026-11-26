@@ -16,6 +16,8 @@ import (
 
 var version = "dev"
 
+// EnvLoader reads configuration values. Each run calls it synchronously;
+// callers sharing it across runs must provide a concurrency-safe function.
 type EnvLoader = func(string) (string, bool)
 
 func main() {
