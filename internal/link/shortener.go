@@ -32,6 +32,10 @@ func (NoopShortener) List(context.Context, string, Page) ([]Link, error) { retur
 
 func (NoopShortener) Delete(context.Context, string, string) error { return nil }
 
+// Service shortens and resolves links. Shorten and Delete are not safe for
+// concurrent use. Resolve may run concurrently when no caller uses Shorten or
+// Delete, provided the store, cache, and clock support concurrent reads/calls.
+// Configure options before sharing a Service; do not copy it after first use.
 type Service struct {
 	store  Store
 	now    func() time.Time
@@ -39,6 +43,8 @@ type Service struct {
 	cache  Cache
 }
 
+// Option configures a Service before use; it must not be applied concurrently
+// with other options or service methods.
 type Option func(*Service)
 
 func WithClock(now func() time.Time) Option {

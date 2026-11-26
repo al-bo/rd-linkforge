@@ -2,11 +2,11 @@
 
 A URL shortener with planned real-time click analytics, built incrementally as the course project for **Golang for developers**.
 
-The design is specified in the project TDD. The repository contains the implemented domain service and in-memory storage, alongside contracts for later milestones.
+The design is specified in the project TDD. The repository contains a TCP resolver, an operator CLI, the domain service and in-memory storage, alongside contracts for later milestones.
 
 ## Current state
 
-Homework 5 adds a concurrent click pipeline and counters to the service, CLI, and data structures from Homeworks 1–4:
+Homework 6 exposes the service over TCP. `linkforged` loads a JSON Lines database, resolves codes through a concurrent LRU cache, and shuts down on Ctrl+C or SIGTERM. A multi-stage Docker build packages the static service binary in a minimal non-root image.
 
 - `internal/base62` provides encoding, recursive encoding, padding, and decoding with overflow checks.
 - `link.Service` implements `Shortener`: it creates links with generated codes or custom aliases, resolves links while checking expiry, lists an owner's links with cursor pagination, and checks ownership before deletion.
@@ -15,16 +15,17 @@ Homework 5 adds a concurrent click pipeline and counters to the service, CLI, an
 - Sentinel errors and `AliasError` support inspection with `errors.Is` and `errors.As`.
 - `internal/config` loads and validates environment variables, joins configuration errors, and redacts credentials in structured logs.
 - `internal/linkio` reads and writes JSON Lines and exports CSV with UTC timestamps and proper quoting.
-- `linkctl` provides `import`, `export`, `config`, and `version` commands. The JSON Lines file preserves links between CLI runs.
+- `linkctl` provides `import`, `export`, `config`, `version`, and `resolve` commands. The JSON Lines file preserves links between CLI runs.
+- `internal/transport/tcp` implements `transport.Server`: one goroutine per connection, a 4,096-byte request limit, a 60-second idle timeout, and TCP keep-alive every 30 seconds.
 - `cache.LRU[K,V]` combines a map with `container/list` to keep a bounded cache in most-to-least-recently-used order.
 - `trie.Trie` indexes words by byte and returns prefix matches in ascending byte order, with an optional result limit.
 - `topk.TopK` uses `container/heap` to retain the highest counts, breaking ties by the smaller key. Duplicate keys remain separate entries.
 - `shortid.CodeGenerator` combines 19 random bits from an injected reader with a 16-bit counter to produce six-character base62 codes. The service still generates its codes from IDs.
 - `link.WithCache` accepts the consumer-owned `link.Cache` interface. `Resolve` checks context first, uses cache hits without reading the store, and checks expiry in both cases. Cache misses are filled only after a successful, unexpired store result, so expired links cannot evict valid cached entries. Successful deletion invalidates the cache; `Shorten` and `List` leave it alone. The service also works without a cache.
 
-Tests cover the new data structures, code generation, cache integration, and regressions from Homeworks 1–3. See [Validation](#validation), [Complexity](#complexity), and [Benchmarks](#benchmarks).
+Tests cover the TCP protocol and shutdown, both commands, the click pipeline, data structures, cache integration, and earlier homework regressions. See [Validation](#validation), [Complexity](#complexity), and [Benchmarks](#benchmarks).
 
-The original interfaces and `Noop*` implementations remain in place. `Pipeline`, `Counters`, and `LRU` are safe for concurrent use; the other mutable types retain their documented concurrency restrictions. The demo uses the concrete service and store; its storage lasts for the current process and is intended for sequential use at this stage.
+The original interfaces and `Noop*` implementations remain in place. The server loads its database once at startup and does not modify it; restart it to load changes made by `linkctl import`. HTTP, database adapters, and connecting the click pipeline to redirects belong to later milestones.
 
 ## Concurrency
 
@@ -36,34 +37,14 @@ The original interfaces and `Noop*` implementations remain in place. `Pipeline`,
 - If its context expires, `Shutdown` cancels the pipeline's write context; repeated calls wait for the same worker completion.
 - Close `Counters` after the pipeline finishes; `Close` signals the owner goroutine and waits for it to exit.
 - `LRU` protects its map and list with one `sync.Mutex` in every method, including `Get`, `Len`, and `Keys`.
-
-## Run the demo
-
-Requires Go 1.25 or newer. From the repository root:
-
-```bash
-go run ./cmd/linkforge https://example.com ftp://nope https://go.dev
-```
-
-Standard output:
-
-```text
-000001    https://example.com
-000002    https://go.dev
-Total: 2
-```
-
-The invalid address is reported through structured logging to standard error. The log includes a timestamp and these fields:
-
-```text
-level=ERROR msg="shorten failed" argument=2 error="link: error unsupported scheme"
-```
-
-The command creates links for owner `demo`, continues after invalid input, and prints the stored links using `All` and `Count`. An invalid request does not consume an ID.
+- `Service.Resolve` may run concurrently when the store, cache, and clock support concurrent access and no caller uses `Shorten` or `Delete`. The daemon only reads the store after startup and uses the synchronized LRU.
+- `Store.ByCode` and other reads may run concurrently while no caller uses `Create` or `Delete`; the store itself has no locks.
+- The TCP server protects its connection set, closed flag, and read-deadline changes with one mutex. This prevents an idle connection from overwriting the wakeup deadline set by `Shutdown`.
+- TCP shutdown closes the listener, wakes idle connections, and waits for active commands to respond. When its deadline expires, it closes remaining connections and cancels their resolver context.
 
 ## Environment configuration
 
-`linkctl config` validates configuration from the environment. Values are trimmed; unset, empty, and whitespace-only variables use the defaults below. Required values have no default.
+`linkforged` and `linkctl config` validate configuration from the environment. Values are trimmed; unset, empty, and whitespace-only variables use the defaults below. Required values have no default. The daemon still requires database credentials and a JWT secret, even though it does not use them to connect to a database or issue tokens yet.
 
 | Variable | Default | Validation |
 |---|---|---|
@@ -87,7 +68,7 @@ go run ./cmd/linkctl config
 
 Success prints `config ok` to stdout. Configuration logs replace the three credentials with `[redacted]`. Invalid configuration returns all validation problems together and exit code 1. An invalid `LF_LOG_LEVEL` is a CLI usage error and returns code 2.
 
-The `import`, `export`, and `version` commands do not require database credentials or a JWT secret. They only read `LF_LOG_LEVEL` for logging.
+The `import`, `export`, `version`, and `resolve` commands do not require database credentials or a JWT secret. They only read `LF_LOG_LEVEL` for logging. `resolve` chooses its server through `-addr`, not `LF_TCP_ADDR`.
 
 ## Import and export
 
@@ -125,11 +106,78 @@ LF_LOG_LEVEL=debug go run ./cmd/linkctl import -in urls.txt -db links.jsonl
 go run -ldflags '-X main.version=1.0.0' ./cmd/linkctl version
 ```
 
+## Running the resolver locally
+
+Create `links.jsonl` with the import example above, then start the server:
+
+```bash
+LF_PG_DSN=unused LF_MONGO_URI=unused \
+LF_JWT_SECRET=0123456789abcdef0123456789abcdef \
+go run ./cmd/linkforged -db links.jsonl
+```
+
+In another terminal, run `go run ./cmd/linkctl resolve 000001`. Use `-addr HOST:PORT` before the code to select another server; the default is `127.0.0.1:7070`. A successful lookup prints only the target URL to stdout and exits 0. An unknown or expired code prints `resolver answered: ERR not_found` to stderr and exits 1; invalid arguments exit 2. The whole client command has a five-second timeout, and cancellation interrupts blocked network I/O.
+
+The daemon writes JSON logs to stderr. Ctrl+C or SIGTERM starts shutdown with a separate 15-second timeout; success logs `resolver stopped` and exits 0.
+
+## TCP resolver and Docker
+
+Requests and replies end in `\n`; `\r\n` is accepted, command names are case-sensitive, and whitespace separates words.
+
+| Request | Response |
+|---|---|
+| `PING` | `PONG` |
+| `RESOLVE <code>` | `OK <target>` or `ERR not_found` |
+| `QUIT` | Connection closes without a reply |
+
+Invalid commands return `ERR bad_request` and keep the connection open; unexpected resolver errors return `ERR internal`. Requests exceeding 4,096 bytes including the newline return `ERR line_too_long` and close the connection.
+
+The Dockerfile builds with Go 1.25, `CGO_ENABLED=0`, `-trimpath`, and `-ldflags="-s -w"`. The final `scratch` image contains only the binary, runs as UID/GID `65532:65532`, exposes port 7070, and uses exec-form `ENTRYPOINT ["/linkforged"]`. `.dockerignore` excludes Git metadata, local credentials, and database files; mount a readable JSON Lines database at runtime.
+
+```bash
+go run ./cmd/linkctl import -in urls.txt -db links.jsonl
+docker build -t linkforged .
+docker run -d --name linkforged -p 7070:7070 -v "$PWD/links.jsonl:/data/links.jsonl:ro" \
+  -e LF_PG_DSN=unused -e LF_MONGO_URI=unused \
+  -e LF_JWT_SECRET=0123456789abcdef0123456789abcdef \
+  linkforged -db /data/links.jsonl
+go run ./cmd/linkctl resolve 000001
+docker stop linkforged
+docker logs linkforged
+docker inspect -f '{{.State.ExitCode}}' linkforged
+docker rm linkforged
+```
+
+`docker stop` sends SIGTERM to the service. Shutdown stops accepting connections, wakes idle readers, and lets commands already in progress respond before closing their connections. Verify that the container stops well before Docker's default ten-second grace period, logs `resolver stopped`, and exits 0.
+
+Validated on 2026-11-26 with Docker Desktop on `linux/arm64`: `linkforged:latest` is 3.97 MB and runs as `65532:65532`. TCP and `linkctl resolve` requests through the published port passed; `docker stop` closed an idle connection in 0.14 seconds, logged `resolver stopped`, and returned container exit code 0. Size and stop time can vary between builds and machines.
+
+## Private images in GitHub Container Registry
+
+After a pull request is merged into `main`, the resulting push runs CI. Once both `check` and `lint` succeed, the `publish` job builds and pushes `ghcr.io/al-bo/linkforged:latest` and `ghcr.io/al-bo/linkforged:sha-<full-commit-SHA>`. Direct pushes to `main` also publish; pull requests and manual CI runs do not. Newer runs on the same ref cancel older runs so an outdated build does not publish after a newer one.
+
+Each image supports `linux/amd64` and `linux/arm64`. Go cross-compiles both binaries on the builder's native platform, so no QEMU setup is needed. The source and revision labels associate the image with this repository and its commit.
+
+Publishing uses the workflow's automatic `GITHUB_TOKEN` with `packages: write`; no additional publishing secret is required. GHCR creates new packages as **private**, independently of the repository's visibility. Before publishing, CI checks package metadata and refuses a visible package whose visibility is not `private`; API errors other than 404 also stop publication. A 404 is allowed for first publication or a package the token cannot read, but existing packages still require write access. Keep the package private in its GitHub settings; public packages cannot be changed back to private. See [GitHub's visibility documentation](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility).
+
+To pull the private image locally, use a personal access token **(classic)** with `read:packages` and access to the package. Set `GHCR_TOKEN` in your local shell, then run:
+
+```bash
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u al-bo --password-stdin
+docker pull ghcr.io/al-bo/linkforged:latest
+```
+
+Use this registry image name in place of `linkforged` in the `docker run` example above. If the package already exists but belongs to a different repository, grant this repository access under the package's **Manage Actions access** settings before publishing.
+
 ## Layout
 
 ```
-cmd/      linkforge         CLI demo using the service and in-memory store
-          linkctl           import, export, config validation, and version
+cmd/
+  linkctl/                  import, export, config, version, resolve
+  linkforged/               TCP service, JSON logs, signal handling
+
+Dockerfile                  multi-stage non-root service image
+.dockerignore               exclude Git metadata, credentials, local data
 
 pkg/                        reusable libraries — a separate Go module
   shortid/  Codec           base62 codec contract (placeholder)        M1
@@ -155,6 +203,7 @@ internal/                   application code
             Verifier        token validation for middleware            M9
             UserStore       account persistence                        M7
   transport/Server          uniform listener lifecycle                 M6 / M8
+  transport/tcp/            TCP resolver and graceful shutdown         M6
   config/   Loader          environment-only configuration             M3
   linkio/                   text input, JSON Lines storage, CSV export M3
   observability/Metrics     counters and histograms                    M10
@@ -253,17 +302,29 @@ The LRU hit performs no allocations. With a shared traversal buffer, the trie no
 
 ## Validation
 
-Run the Homework 4 checks from the repository root:
+Run the Homework 6 checks and earlier regressions from the repository root:
 
 ```bash
 make check build
 gofmt -l .
+go test -race -count=5 ./cmd/linkforged ./cmd/linkctl ./internal/transport/tcp
 go test -cover ./...
 (cd pkg && go test -cover ./...)
-make bench
 ```
 
 `make check build` runs vet, lint, tests with the race detector, and builds in both modules. `gofmt -l .` should produce no output. The root module's `go test ./...` and `make cover` do not include the nested `pkg` module, so its coverage must be checked separately.
+
+Homework 6 coverage measured on 2026-11-26 with Go 1.26.1 using `go test -race -coverprofile=coverage.out ./...`:
+
+| Package | Minimum | Measured |
+|---|---:|---:|
+| `internal/transport/tcp` | 80% | 90.8% |
+| `cmd/linkforged` | 70% | 86.6% |
+| `cmd/linkctl` | 70% | 91.2% |
+
+The daemon tests cover usage and configuration errors, missing or malformed databases, duplicate codes, occupied ports, credential redaction, and a complete lifecycle with eight concurrent clients. Startup is synchronized through a concurrency-safe JSON log writer; cancellation must return exit code 0, close an idle connection, log `resolver stopped`, and release the port. Repeated lookups exercise the real LRU; the domain cache tests separately verify that hits bypass the store.
+
+The resolver client tests use a real TCP server for successful, missing, expired, and failed lookups. They also check invalid arguments, unavailable servers, response parsing, and interruption of a blocked read by a 100-millisecond parent deadline. The supplied `internal/transport/tcp/hw6_test.go` remains unchanged.
 
 Homework 4 requires at least 85% statement coverage in each new or extended library package. Recorded on 2026-11-15 with `cd pkg && go test -cover ./...`:
 

@@ -19,6 +19,8 @@ type ShortenRequest struct {
 }
 
 // Cache is the lookup cache Resolve consults before the store.
+// Implementations must support concurrent Get and Put calls when Resolve is
+// called concurrently; even a cache hit may update recency bookkeeping.
 type Cache interface {
 	Get(code string) (Link, bool)
 	Put(code string, l Link)

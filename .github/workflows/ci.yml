@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# A newer main revision supersedes an older run, including its pending publish.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -64,3 +69,68 @@ jobs:
         with:
           version: latest
           working-directory: pkg
+
+  publish:
+    name: Publish private container image
+    needs: [check, lint]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check package visibility and prepare image tags
+        id: image
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const owner = context.repo.owner.toLowerCase();
+            const packageName = 'linkforged';
+            const organization = context.payload.repository.owner.type === 'Organization';
+            const route = organization
+              ? 'GET /orgs/{org}/packages/{package_type}/{package_name}'
+              : 'GET /users/{username}/packages/{package_type}/{package_name}';
+            let pkg;
+            try {
+              const response = await github.request(route, {
+                ...(organization ? { org: owner } : { username: owner }),
+                package_type: 'container',
+                package_name: packageName,
+              });
+              pkg = response.data;
+            } catch (error) {
+              // A new package returns 404 and will be private on first push.
+              // An inaccessible existing package still requires write access to push.
+              if (error.status !== 404) throw error;
+            }
+            if (pkg && pkg.visibility !== 'private') {
+              throw new Error(`Refusing to publish to ${pkg.visibility} package ${owner}/${packageName}; use a new private package name.`);
+            }
+            const image = `ghcr.io/${owner}/${packageName}`;
+            core.setOutput('name', image);
+            core.setOutput('tags', `${image}:latest\n${image}:sha-${context.sha}`);
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

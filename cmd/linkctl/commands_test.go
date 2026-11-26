@@ -61,6 +61,11 @@ func TestCommandUsageErrors(t *testing.T) {
 			if code != 2 || stdout != "" || stderr == "" {
 				t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout, stderr)
 			}
+			if tc.name == "no command" || tc.name == "unknown command" {
+				if !strings.Contains(stderr, "Usage: linkctl <import|export|config|version|resolve> [arguments]") {
+					t.Errorf("top-level usage omits a command: %s", stderr)
+				}
+			}
 		})
 	}
 }

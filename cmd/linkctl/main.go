@@ -16,6 +16,8 @@ import (
 
 var version = "dev"
 
+// EnvLoader reads configuration values. Each run calls it synchronously;
+// callers sharing it across runs must provide a concurrency-safe function.
 type EnvLoader = func(string) (string, bool)
 
 func main() {
@@ -42,9 +44,15 @@ func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Wr
 	}
 	h := slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: level})
 	logger := slog.New(h)
+	usage := func() {
+		if _, err := fmt.Fprintln(stderr, "Usage: linkctl <import|export|config|version|resolve> [arguments]"); err != nil {
+			logger.ErrorContext(ctx, "write usage failed", slog.Any("error", err))
+		}
+	}
 
 	if len(args) == 0 {
 		logger.ErrorContext(ctx, "command is required")
+		usage()
 		return 2
 	}
 	switch args[0] {
@@ -56,8 +64,11 @@ func run(ctx context.Context, args []string, env EnvLoader, stdout, stderr io.Wr
 		return runExport(ctx, args[1:], logger, stdout, stderr)
 	case "version":
 		return runVersion(ctx, args[1:], logger, stdout, stderr)
+	case "resolve":
+		return runResolve(ctx, args[1:], logger, stdout, stderr)
 	default:
 		logger.ErrorContext(ctx, "unknown command")
+		usage()
 		return 2
 	}
 }
