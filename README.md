@@ -6,7 +6,7 @@ The design is specified in the project TDD. The repository contains a TCP resolv
 
 ## Current state
 
-Homework 6 exposes the service over TCP. `linkforged` loads a JSON Lines database, resolves codes through a concurrent LRU cache, and shuts down on Ctrl+C or SIGTERM. Docker packaging remains unfinished; the commands below describe the intended container workflow once `Dockerfile` and `.dockerignore` are added.
+Homework 6 exposes the service over TCP. `linkforged` loads a JSON Lines database, resolves codes through a concurrent LRU cache, and shuts down on Ctrl+C or SIGTERM. A multi-stage Docker build packages the static service binary in a minimal non-root image.
 
 - `internal/base62` provides encoding, recursive encoding, padding, and decoding with overflow checks.
 - `link.Service` implements `Shortener`: it creates links with generated codes or custom aliases, resolves links while checking expiry, lists an owner's links with cursor pagination, and checks ownership before deletion.
@@ -132,7 +132,7 @@ Requests and replies end in `\n`; `\r\n` is accepted, command names are case-sen
 
 Invalid commands return `ERR bad_request` and keep the connection open; unexpected resolver errors return `ERR internal`. Requests exceeding 4,096 bytes including the newline return `ERR line_too_long` and close the connection.
 
-**Docker packaging is pending:** add a multi-stage `Dockerfile` and `.dockerignore` before running this workflow. The required image is under 20 MB, runs as non-root, exposes port 7070, and uses exec-form `ENTRYPOINT ["/linkforged"]`.
+The Dockerfile builds with Go 1.25, `CGO_ENABLED=0`, `-trimpath`, and `-ldflags="-s -w"`. The final `scratch` image contains only the binary, runs as UID/GID `65532:65532`, exposes port 7070, and uses exec-form `ENTRYPOINT ["/linkforged"]`. `.dockerignore` excludes Git metadata, local credentials, and database files; mount a readable JSON Lines database at runtime.
 
 ```bash
 go run ./cmd/linkctl import -in urls.txt -db links.jsonl
@@ -150,6 +150,25 @@ docker rm linkforged
 
 `docker stop` sends SIGTERM to the service. Shutdown stops accepting connections, wakes idle readers, and lets commands already in progress respond before closing their connections. Verify that the container stops well before Docker's default ten-second grace period, logs `resolver stopped`, and exits 0.
 
+Validated on 2026-11-26 with Docker Desktop on `linux/arm64`: `linkforged:latest` is 3.97 MB and runs as `65532:65532`. TCP and `linkctl resolve` requests through the published port passed; `docker stop` closed an idle connection in 0.14 seconds, logged `resolver stopped`, and returned container exit code 0. Size and stop time can vary between builds and machines.
+
+## Private images in GitHub Container Registry
+
+After a pull request is merged into `main`, the resulting push runs CI. Once both `check` and `lint` succeed, the `publish` job builds and pushes `ghcr.io/al-bo/linkforged:latest` and `ghcr.io/al-bo/linkforged:sha-<full-commit-SHA>`. Direct pushes to `main` also publish; pull requests and manual CI runs do not. Newer runs on the same ref cancel older runs so an outdated build does not publish after a newer one.
+
+Each image supports `linux/amd64` and `linux/arm64`. Go cross-compiles both binaries on the builder's native platform, so no QEMU setup is needed. The source and revision labels associate the image with this repository and its commit.
+
+Publishing uses the workflow's automatic `GITHUB_TOKEN` with `packages: write`; no additional publishing secret is required. GHCR creates new packages as **private**, independently of the repository's visibility. Before publishing, CI checks package metadata and refuses a visible package whose visibility is not `private`; API errors other than 404 also stop publication. A 404 is allowed for first publication or a package the token cannot read, but existing packages still require write access. Keep the package private in its GitHub settings; public packages cannot be changed back to private. See [GitHub's visibility documentation](https://docs.github.com/en/packages/learn-github-packages/configuring-a-packages-access-control-and-visibility).
+
+To pull the private image locally, use a personal access token **(classic)** with `read:packages` and access to the package. Set `GHCR_TOKEN` in your local shell, then run:
+
+```bash
+printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u al-bo --password-stdin
+docker pull ghcr.io/al-bo/linkforged:latest
+```
+
+Use this registry image name in place of `linkforged` in the `docker run` example above. If the package already exists but belongs to a different repository, grant this repository access under the package's **Manage Actions access** settings before publishing.
+
 ## Layout
 
 ```
@@ -157,8 +176,8 @@ cmd/
   linkctl/                  import, export, config, version, resolve
   linkforged/               TCP service, JSON logs, signal handling
 
-Dockerfile                  planned: multi-stage non-root service image
-.dockerignore               planned: exclude Git metadata and local data
+Dockerfile                  multi-stage non-root service image
+.dockerignore               exclude Git metadata, credentials, local data
 
 pkg/                        reusable libraries — a separate Go module
   shortid/  Codec           base62 codec contract (placeholder)        M1
